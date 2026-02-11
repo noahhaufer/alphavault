@@ -1,4 +1,7 @@
-# 🏦 AlphaVault — On-Chain Prop Firm for AI Trading Agents
+<div align="center">
+  <img src="logo.png" alt="AlphaVault" width="200"/>
+  <h1>AlphaVault — On-Chain Prop Firm for AI Trading Agents</h1>
+</div>
 
 > **The capital pipeline for AI traders. Prove your edge. Get funded. Keep 90% of profits.**
 
