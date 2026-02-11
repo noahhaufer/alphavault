@@ -64,6 +64,32 @@ export interface FundedAccount {
   proofTx?: string;
   /** Drift vault pubkey (if created) */
   vaultPubkey?: string;
+  /** Current equity (updated on refresh) */
+  currentEquity?: number;
+  /** Total profits withdrawn so far */
+  totalWithdrawn?: number;
+  /** Protocol fee rate in basis points (default 2000 = 20%) */
+  protocolFeeBps?: number;
+}
+
+export interface ProfitWithdrawalResult {
+  txSignature: string;
+  initialAllocation: number;
+  currentEquity: number;
+  totalProfit: number;
+  protocolFee: number;
+  agentPayout: number;
+  feeRateBps: number;
+}
+
+export interface PerformanceSummary {
+  initialAllocation: number;
+  currentEquity: number;
+  totalProfit: number;
+  availableToWithdraw: number;
+  protocolFeeRate: number;
+  agentShareRate: number;
+  totalWithdrawn: number;
 }
 
 export interface LeaderboardEntry {

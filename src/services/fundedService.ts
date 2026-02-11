@@ -2,7 +2,7 @@
  * Funded Account Service — manages post-challenge funded allocations
  */
 import { v4 as uuid } from 'uuid';
-import { FundedAccount } from '../types';
+import { FundedAccount, ProfitWithdrawalResult, PerformanceSummary } from '../types';
 import { getEntriesByAgent } from './challengeService';
 import { storeProofOnChain, getServiceKeypair } from '../utils/solana';
 
@@ -77,4 +77,88 @@ export async function activateFundedAccount(accountId: string): Promise<FundedAc
 
 export function getAllFundedAccounts(): FundedAccount[] {
   return Array.from(fundedAccounts.values());
+}
+
+export function getFundedAccountById(accountId: string): FundedAccount | undefined {
+  return fundedAccounts.get(accountId);
+}
+
+/** Default protocol fee: 20% (2000 bps) */
+const DEFAULT_PROTOCOL_FEE_BPS = 2000;
+
+/**
+ * Simulate current equity for a funded account.
+ * In production this would query Drift on-chain data.
+ */
+function refreshEquity(account: FundedAccount): number {
+  if (account.currentEquity === undefined) {
+    // Simulate some profit: allocation + random 0-15%
+    account.currentEquity = account.allocation * (1 + Math.random() * 0.15);
+  }
+  return account.currentEquity;
+}
+
+/**
+ * Withdraw profits from a funded account.
+ * Agent can only withdraw profits (equity - allocation), not principal.
+ * Protocol takes a configurable fee (default 20%).
+ */
+export function withdrawProfits(accountId: string): ProfitWithdrawalResult | { error: string } {
+  const account = fundedAccounts.get(accountId);
+  if (!account) return { error: 'Funded account not found' };
+  if (account.status !== 'active') return { error: 'Account is not active' };
+
+  const equity = refreshEquity(account);
+  const feeBps = account.protocolFeeBps ?? DEFAULT_PROTOCOL_FEE_BPS;
+  const profit = equity - account.allocation;
+
+  if (profit <= 0) {
+    return { error: `No profit to withdraw. Equity: $${equity.toFixed(2)}, Allocation: $${account.allocation}` };
+  }
+
+  const protocolFee = profit * (feeBps / 10000);
+  const agentPayout = profit - protocolFee;
+
+  // Simulate withdrawal: reset equity to allocation
+  account.currentEquity = account.allocation;
+  account.totalWithdrawn = (account.totalWithdrawn ?? 0) + agentPayout;
+
+  // Simulated tx signature
+  const txSignature = `sim_withdraw_${accountId.slice(0, 8)}_${Date.now().toString(36)}`;
+
+  console.log(`💸 Profit withdrawal: ${account.agentName} — profit=$${profit.toFixed(2)}, agent=$${agentPayout.toFixed(2)}, fee=$${protocolFee.toFixed(2)}`);
+
+  return {
+    txSignature,
+    initialAllocation: account.allocation,
+    currentEquity: equity,
+    totalProfit: profit,
+    protocolFee,
+    agentPayout,
+    feeRateBps: feeBps,
+  };
+}
+
+/**
+ * Get performance summary for a funded account.
+ */
+export function getPerformance(accountId: string): PerformanceSummary | { error: string } {
+  const account = fundedAccounts.get(accountId);
+  if (!account) return { error: 'Funded account not found' };
+
+  const equity = refreshEquity(account);
+  const feeBps = account.protocolFeeBps ?? DEFAULT_PROTOCOL_FEE_BPS;
+  const feeRate = feeBps / 10000;
+  const totalProfit = equity - account.allocation;
+  const availableToWithdraw = totalProfit > 0 ? totalProfit * (1 - feeRate) : 0;
+
+  return {
+    initialAllocation: account.allocation,
+    currentEquity: equity,
+    totalProfit,
+    availableToWithdraw,
+    protocolFeeRate: feeRate,
+    agentShareRate: 1 - feeRate,
+    totalWithdrawn: account.totalWithdrawn ?? 0,
+  };
 }

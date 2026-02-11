@@ -15,8 +15,8 @@ const BASE = process.env.ALPHAVAULT_URL || 'http://localhost:3000';
 const AGENT_ID = 'demo-agent-001';
 const AGENT_NAME = 'MomentumBot v1';
 const TRADE_SIZE = 0.1; // SOL
-const TRADE_CYCLES = 5;
-const CYCLE_INTERVAL_MS = 15_000; // 15 seconds between trades
+const TRADE_CYCLES = parseInt(process.env.TRADE_CYCLES || '5', 10);
+const CYCLE_INTERVAL_MS = parseInt(process.env.CYCLE_INTERVAL_MS || '15000', 10);
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -190,6 +190,31 @@ async function main(): Promise<void> {
     }
   } catch (err: any) {
     console.log(`  ⚠️  ${err.message}`);
+  }
+
+  // ── Extended Results ──
+  banner('📊 Extended Results');
+  try {
+    const status = await api('GET', `/challenges/${starter.id}/status/${AGENT_ID}`);
+    const m = status.metrics;
+    const pnl = m.currentPnlPercent;
+    const maxDD = m.maxDrawdownPercent;
+    const sharpe = m.sharpeRatio;
+    const equity = m.currentEquity;
+
+    console.log(`\n  ┌─────────────────────────────────────┐`);
+    console.log(`  │  FINAL TRADING REPORT                │`);
+    console.log(`  ├─────────────────────────────────────┤`);
+    console.log(`  │  Cycles:        ${String(TRADE_CYCLES).padEnd(20)}│`);
+    console.log(`  │  Trades Placed: ${String(tradesPlaced).padEnd(20)}│`);
+    console.log(`  │  Final PnL:     ${(pnl.toFixed(2) + '%').padEnd(20)}│`);
+    console.log(`  │  Max Drawdown:  ${(maxDD.toFixed(2) + '%').padEnd(20)}│`);
+    console.log(`  │  Sharpe Ratio:  ${sharpe.toFixed(4).padEnd(20)}│`);
+    console.log(`  │  Final Equity:  ${('$' + equity.toLocaleString()).padEnd(20)}│`);
+    console.log(`  └─────────────────────────────────────┘`);
+  } catch (err: any) {
+    console.log(`  ⚠️  Could not fetch final metrics: ${err.message}`);
+    console.log(`  Trades placed: ${tradesPlaced} across ${TRADE_CYCLES} cycles`);
   }
 
   // ── Done ──

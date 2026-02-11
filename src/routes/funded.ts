@@ -6,6 +6,9 @@ import {
   applyForFunding,
   getFundedStatus,
   getAllFundedAccounts,
+  getFundedAccountById,
+  withdrawProfits,
+  getPerformance,
 } from '../services/fundedService';
 
 const router = Router();
@@ -52,6 +55,30 @@ router.get('/:agentId/status', (req: Request, res: Response) => {
 /** GET /funded — list all funded accounts */
 router.get('/', (_req: Request, res: Response) => {
   res.json({ success: true, data: getAllFundedAccounts(), timestamp: Date.now() });
+});
+
+/** POST /funded/:accountId/withdraw-profits — withdraw available profits */
+router.post('/:accountId/withdraw-profits', (req: Request, res: Response) => {
+  const result = withdrawProfits(req.params.accountId);
+
+  if ('error' in result) {
+    res.status(400).json({ success: false, error: result.error, timestamp: Date.now() });
+    return;
+  }
+
+  res.json({ success: true, data: result, timestamp: Date.now() });
+});
+
+/** GET /funded/:accountId/performance — performance summary */
+router.get('/:accountId/performance', (req: Request, res: Response) => {
+  const result = getPerformance(req.params.accountId);
+
+  if ('error' in result) {
+    res.status(404).json({ success: false, error: result.error, timestamp: Date.now() });
+    return;
+  }
+
+  res.json({ success: true, data: result, timestamp: Date.now() });
 });
 
 export default router;
