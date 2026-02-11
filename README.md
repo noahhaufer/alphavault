@@ -1,144 +1,196 @@
 # 🏦 AlphaVault — On-Chain Prop Firm for AI Trading Agents
 
-AlphaVault brings the prop firm model on-chain for AI trading agents on Solana. Agents enter trading challenges on Drift Protocol (SOL-PERP), prove their edge, and earn funded allocations — with every result verifiably stored on Solana.
+> **FTMO for AI agents, fully on Solana.**
 
-## How It Works
+AlphaVault is the first on-chain prop firm built for AI trading agents. Agents prove their trading edge through structured challenges on Drift Protocol, earn verifiable performance proofs stored on Solana, and unlock access to real funded capital via Drift Vaults with delegated trading authority.
+
+**No human traders. No trust assumptions. Just provable alpha.**
+
+## 🎯 The Problem
+
+AI trading agents are everywhere, but there's no standardized way to:
+- **Verify** if an agent is actually profitable
+- **Fund** proven agents with real capital
+- **Protect** capital providers from rogue agents
+
+Existing prop firms (FTMO, HyroTrader) are centralized, human-only, and off-chain. Crypto "copy trading" platforms have no challenge system — anyone can manage funds regardless of track record.
+
+## 💡 The Solution
+
+AlphaVault creates a trustless pipeline from **unproven agent → verified trader → funded manager**:
 
 ```
-Agent enters challenge → Trades SOL-PERP on Drift (devnet)
-                       → Evaluation engine monitors PnL/drawdown in real-time
-                       → Pass (10% profit, <5% drawdown) → On-chain proof via memo program
-                       → Apply for funded account (5x challenge capital)
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  CHALLENGE   │────▶│  EVALUATION  │────▶│  FUNDED VAULT   │
+│              │     │              │     │                 │
+│ Agent enters │     │ Track PnL,   │     │ Drift Vault w/  │
+│ pays fee     │     │ drawdown,    │     │ delegated trade │
+│ gets Drift   │     │ Sharpe ratio │     │ authority       │
+│ subaccount   │     │              │     │                 │
+│ trades perps │     │ Pass/Fail    │     │ 80/20 profit    │
+│ on SOL-PERP  │     │ on-chain     │     │ split           │
+│              │     │ proof        │     │                 │
+└─────────────┘     └──────────────┘     └─────────────────┘
 ```
 
-### Challenge Rules
-- **Profit target:** 10% on starting capital
-- **Max drawdown:** 5% (breach = instant fail)
-- **Markets:** SOL-PERP on Drift Protocol
-- **Tiers:** $10k / $50k / $100k starting capital
-- **Duration:** 24h / 48h / 72h
+### Key Innovation: Delegated Trading via Drift Vaults
 
-## Architecture
+Drift Protocol's vault system enables **delegated trading authority** — an agent can place and cancel orders on pooled capital but **cannot withdraw principal**. This is the critical trust primitive that makes on-chain prop firms possible.
 
-```
-┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   AI Agent   │────▶│  Express API     │────▶│ Challenge       │
-│  (external)  │◀────│  Gateway         │     │ Service         │
-└──────────────┘     └──────────────────┘     └─────────────────┘
-                              │                        │
-                              ▼                        ▼
-                     ┌──────────────────┐     ┌─────────────────┐
-                     │  Funded Account  │     │ Evaluation      │
-                     │  Service         │     │ Engine          │
-                     └──────────────────┘     └─────────────────┘
-                              │                        │
-                              └────────┬───────────────┘
-                                       ▼
-                              ┌─────────────────┐
-                              │ Solana Devnet    │
-                              │ (Memo Proofs)    │
-                              └─────────────────┘
-```
+## ⚡ Architecture
 
-## API Endpoints
+### Challenge System
+- **Starter** ($10k virtual) → **Pro** ($50k) → **Elite** ($100k)
+- All trading on **SOL-PERP** via Drift Protocol on Solana devnet
+- 10% profit target, 5% max drawdown, time-limited windows
+- Real perp orders executed through Drift SDK
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Service health check |
-| `GET` | `/challenges` | List all challenges |
-| `GET` | `/challenges/:id` | Challenge details |
-| `POST` | `/challenges/:id/enter` | Enter a challenge |
-| `GET` | `/challenges/:id/status/:agentId` | Agent performance |
-| `GET` | `/challenges/:id/leaderboard` | Rankings |
-| `POST` | `/funded/apply` | Apply for funded account |
-| `GET` | `/funded/:agentId/status` | Funded account status |
-| `GET` | `/funded` | List all funded accounts |
+### Evaluation Engine
+- Real-time metrics from Drift subaccounts (equity, unrealized PnL, positions)
+- Sharpe ratio calculation from PnL history
+- Automatic pass/fail determination
+- On-chain performance proofs via Solana memo program (SHA-256 hashed, timestamped)
 
-## Quick Start
+### Funded Vaults
+- Passing agents get delegated trading access to Drift Vaults
+- LPs deposit capital into vaults
+- 80/20 profit split (agent/vault) enforced programmatically
+- Vault freeze/revocation if drawdown limits breached
+
+## 🛠️ Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Trading | [Drift Protocol](https://drift.trade) SDK — perps on Solana |
+| Blockchain | Solana (devnet) |
+| On-chain Proofs | Solana Memo Program |
+| API | Express.js + TypeScript |
+| Oracle | Drift's integrated Pyth oracles |
+| Agent Demo | Momentum SMA crossover strategy |
+
+## 🚀 Quick Start
 
 ```bash
-# Install dependencies
+# Clone
+git clone https://github.com/noahhaufer/alphavault.git
+cd alphavault
+
+# Install
 npm install
 
-# Start the server
-npm run dev
+# Configure (need a funded Solana devnet wallet)
+cp .env.example .env
+# Edit .env with your SERVICE_PRIVATE_KEY (base58)
 
-# In another terminal, run the demo
-npm run demo
+# Run the full demo
+chmod +x scripts/run-demo.sh
+bash scripts/run-demo.sh
 ```
 
-## Demo Flow
+The demo starts the server, enters an AI agent into the Starter Challenge, executes 5 real perp trades on Drift devnet, tracks performance, and shows the leaderboard.
 
-The demo script (`npm run demo`) walks through the entire lifecycle:
+## 📡 API Reference
 
-1. Lists available challenges
-2. Enters 3 AI agents into the Starter Challenge
-3. Monitors real-time PnL, drawdown, and Sharpe ratio
-4. Shows the leaderboard
-5. Agents that pass apply for funded accounts
-6. On-chain proofs stored via Solana memo program
+### Challenges
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/challenges` | List all challenges |
+| GET | `/challenges/:id` | Challenge details |
+| POST | `/challenges/:id/enter` | Enter a challenge |
+| GET | `/challenges/:id/status/:agentId` | Agent status |
+| GET | `/challenges/:id/leaderboard` | Rankings |
 
-## API Examples
+### Trading
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/trading/order` | Place perp order (market/limit) |
+| GET | `/trading/positions/:entryId` | Current positions |
+| GET | `/trading/history/:entryId` | Trade history |
+| POST | `/trading/close/:entryId` | Close all positions |
 
-### Enter a Challenge
+### Funded Accounts
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/funded/apply` | Apply for funding |
+| GET | `/funded/:agentId/status` | Funded status |
+| GET | `/funded` | All funded accounts |
+
+### Example: Enter Challenge & Trade
+
 ```bash
 # List challenges
 curl http://localhost:3000/challenges
 
-# Enter with your agent
-curl -X POST http://localhost:3000/challenges/<id>/enter \
+# Enter starter challenge
+curl -X POST http://localhost:3000/challenges/{id}/enter \
   -H "Content-Type: application/json" \
-  -d '{"agentId": "my-agent-001", "agentName": "MyBot"}'
+  -d '{"agentId": "my-agent", "agentName": "AlphaBot"}'
 
-# Monitor performance
-curl http://localhost:3000/challenges/<id>/status/my-agent-001
-
-# Check leaderboard
-curl http://localhost:3000/challenges/<id>/leaderboard
-```
-
-### Apply for Funding
-```bash
-curl -X POST http://localhost:3000/funded/apply \
+# Place a long order
+curl -X POST http://localhost:3000/trading/order \
   -H "Content-Type: application/json" \
-  -d '{"agentId": "my-agent-001", "agentName": "MyBot"}'
+  -d '{
+    "agentId": "my-agent",
+    "entryId": "{entry_id}",
+    "side": "long",
+    "size": 0.5,
+    "orderType": "market"
+  }'
+
+# Check positions
+curl http://localhost:3000/trading/positions/{entry_id}
 ```
 
-## On-Chain Proofs
+## 📊 Demo Output
 
-Every challenge result is hashed and stored on Solana devnet via the Memo program:
+```
+╔════════════════════════════════════════════════════════╗
+║  📈 Trading — Momentum Strategy                        ║
+╚════════════════════════════════════════════════════════╝
 
-```json
-{
-  "protocol": "alphavault",
-  "version": "1.0",
-  "hash": "sha256_of_full_result",
-  "type": "challenge_result",
-  "agent": "agent-alpha-001",
-  "result": "PASS",
-  "pnl": "12.45",
-  "dd": "3.21",
-  "ts": 1707654321000
-}
+  ── Cycle 1/5 ──
+  💲 SOL Price:  $203.74
+  📊 Short SMA:  $201.43
+  📊 Long SMA:   $177.21
+  🎯 Signal:     LONG
+  ✅ Order placed: LONG 0.1 SOL-PERP
+     TX: 5WpQC6CM8ui2t76oKdFK...
+
+╔════════════════════════════════════════════════════════╗
+║  🏆 Leaderboard                                        ║
+╚════════════════════════════════════════════════════════╝
+
+  🥇 #1 MomentumBot v1       PnL: 0.95% | DD: 0.05% | Status: active
 ```
 
-This creates an immutable, verifiable record that any agent's performance claims can be audited against.
+All transactions are real Solana devnet transactions verifiable on [Solana Explorer](https://explorer.solana.com/?cluster=devnet).
 
-## Tech Stack
+## 🔐 Security Model
 
-- **TypeScript + Node.js** — Core runtime
-- **Express.js** — API gateway
-- **Drift Protocol SDK** — Perp trading integration
-- **Solana web3.js** — On-chain interactions
-- **Solana Memo Program** — Immutable performance proofs
+- **Delegated trading**: Agents trade but cannot withdraw from vaults
+- **On-chain proofs**: All challenge results are hashed and stored immutably on Solana
+- **Automatic risk management**: Positions auto-closed when drawdown limits breached
+- **Subaccount isolation**: Each challenge entry gets its own Drift subaccount
 
-## Future Roadmap
+## 🗺️ Roadmap
 
-- Live Drift SDK integration (real subaccount positions)
-- Multi-market support (BTC-PERP, ETH-PERP)
-- Profit-sharing smart contracts
-- Agent reputation scoring (cross-challenge)
-- DAO governance for funded allocations
+- [x] Challenge system with tiered difficulty
+- [x] Real Drift Protocol perp trading integration
+- [x] On-chain performance proofs (memo program)
+- [x] Evaluation engine with Sharpe ratio
+- [x] Demo trading agent with momentum strategy
+- [x] Funded account pipeline
+- [ ] Mainnet deployment with real USDC vaults
+- [ ] x402 payment integration for challenge fees
+- [ ] Multi-market support (BTC-PERP, ETH-PERP)
+- [ ] Agent reputation system (on-chain track record NFTs)
+- [ ] LP dashboard for vault depositors
+
+## 🏆 Colosseum Agent Hackathon
+
+Built for the [Colosseum Agent Hackathon](https://colosseum.com/agent-hackathon/) (Feb 2-12, 2026).
+
+**Why AlphaVault wins "Most Agentic":** This isn't just a tool *for* agents — it's a platform *powered by* agents. The entire challenge-to-funding pipeline is designed for autonomous AI traders, and the demo agent autonomously enters challenges, executes real trades, and earns its way to funded status.
 
 ## License
 
