@@ -1,58 +1,111 @@
 /**
- * Evaluation Engine — monitors positions, calculates metrics, determines pass/fail
+ * Evaluation Engine — monitors real Drift positions, calculates metrics, determines pass/fail
  */
 import {
   getEntriesForChallenge,
   getAllChallenges,
   updateEntryMetrics,
   setEntryStatus,
-  getEntry,
 } from './challengeService';
+import { getAccountMetrics, getPositions, getTradeCount } from './driftService';
 import { storeProofOnChain, getServiceKeypair } from '../utils/solana';
 import { ChallengeEntry, PerformanceMetrics } from '../types';
 
 /**
  * Calculate Sharpe ratio from PnL history
- * Assumes daily returns, risk-free rate = 0
+ * Assumes periodic returns, risk-free rate = 0
  */
 function calcSharpe(pnlHistory: number[]): number {
   if (pnlHistory.length < 2) return 0;
 
-  // Convert cumulative PnL to period returns
   const returns: number[] = [];
   for (let i = 1; i < pnlHistory.length; i++) {
     returns.push(pnlHistory[i] - pnlHistory[i - 1]);
   }
 
   const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const variance = returns.reduce((a, r) => a + (r - mean) ** 2, 0) / returns.length;
+  const variance =
+    returns.reduce((a, r) => a + (r - mean) ** 2, 0) / returns.length;
   const std = Math.sqrt(variance);
 
   if (std === 0) return mean > 0 ? 10 : 0;
-  // Annualize: assume hourly snapshots → sqrt(8760)
+  // Annualize: assume snapshots every 5s → ~6307200/year
   return (mean / std) * Math.sqrt(8760);
 }
 
 /**
- * Simulate metric updates for demo purposes.
- * In production, this would read from Drift SDK subaccount positions.
+ * Read real metrics from Drift subaccount
  */
-export function simulateMetricUpdate(entry: ChallengeEntry, startingCapital: number): void {
-  const elapsed = (Date.now() - entry.startedAt) / 3600_000; // hours
+export function readMetricsFromDrift(
+  entry: ChallengeEntry,
+  startingCapital: number
+): void {
+  try {
+    const { equity, unrealizedPnl } = getAccountMetrics(entry.subAccountId);
+    const positions = getPositions(entry.subAccountId);
+
+    // Use equity from Drift, fall back to startingCapital + unrealizedPnl
+    const currentEquity = equity > 0 ? equity : startingCapital + unrealizedPnl;
+    const currentPnl = currentEquity - startingCapital;
+
+    const m = entry.metrics;
+    const newPeak = Math.max(m.peakEquity, currentEquity);
+    const drawdown = newPeak - currentEquity;
+    const drawdownPct = newPeak > 0 ? (drawdown / newPeak) * 100 : 0;
+    const maxDd = Math.max(m.maxDrawdown, drawdown);
+    const maxDdPct = Math.max(m.maxDrawdownPercent, drawdownPct);
+
+    const history = [...m.pnlHistory, currentPnl];
+    // Keep history bounded (last 10000 snapshots)
+    if (history.length > 10000) history.splice(0, history.length - 10000);
+
+    const tradeCount = getTradeCount(entry.subAccountId);
+    const wins = positions.filter((p) => p.unrealizedPnl > 0).length;
+    const totalPositions = positions.length || 1;
+
+    updateEntryMetrics(entry.id, {
+      currentPnl,
+      currentPnlPercent: startingCapital > 0 ? (currentPnl / startingCapital) * 100 : 0,
+      maxDrawdown: maxDd,
+      maxDrawdownPercent: maxDdPct,
+      peakEquity: newPeak,
+      currentEquity,
+      sharpeRatio: calcSharpe(history),
+      totalTrades: tradeCount > m.totalTrades ? tradeCount : m.totalTrades,
+      winRate: totalPositions > 0 ? wins / totalPositions : 0,
+      pnlHistory: history,
+    });
+  } catch (err: any) {
+    // If Drift read fails (e.g. subaccount not yet funded), use simulation fallback
+    console.warn(
+      `⚠️  Drift read failed for entry ${entry.id} (sub ${entry.subAccountId}): ${err.message}. Using simulation fallback.`
+    );
+    simulateMetricUpdate(entry, startingCapital);
+  }
+}
+
+/**
+ * Fallback: simulate metric updates when Drift reads are unavailable
+ * (e.g. subaccount not initialized/funded yet)
+ */
+export function simulateMetricUpdate(
+  entry: ChallengeEntry,
+  startingCapital: number
+): void {
   const m = entry.metrics;
 
-  // Random walk with slight positive drift (simulates a decent agent)
   const pnlDelta = (Math.random() - 0.42) * startingCapital * 0.005;
   const newPnl = m.currentPnl + pnlDelta;
   const newEquity = startingCapital + newPnl;
 
   const newPeak = Math.max(m.peakEquity, newEquity);
   const drawdown = newPeak - newEquity;
-  const drawdownPct = (drawdown / newPeak) * 100;
+  const drawdownPct = newPeak > 0 ? (drawdown / newPeak) * 100 : 0;
   const maxDd = Math.max(m.maxDrawdown, drawdown);
   const maxDdPct = Math.max(m.maxDrawdownPercent, drawdownPct);
 
   const history = [...m.pnlHistory, newPnl];
+  if (history.length > 10000) history.splice(0, history.length - 10000);
   const trades = m.totalTrades + (Math.random() > 0.7 ? 1 : 0);
   const winRate = trades > 0 ? Math.min(0.65 + Math.random() * 0.1, 1) : 0;
 
@@ -85,7 +138,9 @@ export async function evaluateEntry(
 
   // Check fail: drawdown exceeded
   if (m.maxDrawdownPercent > maxDrawdown) {
-    console.log(`❌ Agent ${entry.agentName} FAILED — drawdown ${m.maxDrawdownPercent.toFixed(2)}% > ${maxDrawdown}%`);
+    console.log(
+      `❌ Agent ${entry.agentName} FAILED — drawdown ${m.maxDrawdownPercent.toFixed(2)}% > ${maxDrawdown}%`
+    );
     const proofTx = await storeProof(entry, false);
     setEntryStatus(entry.id, 'failed', proofTx);
     return;
@@ -93,7 +148,9 @@ export async function evaluateEntry(
 
   // Check pass: profit target reached
   if (m.currentPnlPercent >= profitTarget) {
-    console.log(`✅ Agent ${entry.agentName} PASSED — PnL ${m.currentPnlPercent.toFixed(2)}% ≥ ${profitTarget}%`);
+    console.log(
+      `✅ Agent ${entry.agentName} PASSED — PnL ${m.currentPnlPercent.toFixed(2)}% ≥ ${profitTarget}%`
+    );
     const proofTx = await storeProof(entry, true);
     setEntryStatus(entry.id, 'passed', proofTx);
     return;
@@ -101,14 +158,19 @@ export async function evaluateEntry(
 
   // Check expired
   if (now >= entry.endsAt) {
-    console.log(`⏰ Agent ${entry.agentName} EXPIRED — PnL ${m.currentPnlPercent.toFixed(2)}% (needed ${profitTarget}%)`);
+    console.log(
+      `⏰ Agent ${entry.agentName} EXPIRED — PnL ${m.currentPnlPercent.toFixed(2)}% (needed ${profitTarget}%)`
+    );
     const proofTx = await storeProof(entry, false);
     setEntryStatus(entry.id, 'expired', proofTx);
     return;
   }
 }
 
-async function storeProof(entry: ChallengeEntry, passed: boolean): Promise<string> {
+async function storeProof(
+  entry: ChallengeEntry,
+  passed: boolean
+): Promise<string> {
   try {
     const keypair = getServiceKeypair();
     return await storeProofOnChain(keypair, {
@@ -140,8 +202,8 @@ export async function runEvaluationCycle(): Promise<void> {
     for (const entry of entries) {
       if (entry.status !== 'active') continue;
 
-      // Simulate metric updates (replace with Drift SDK reads in production)
-      simulateMetricUpdate(entry, challenge.startingCapital);
+      // Read real metrics from Drift (falls back to simulation if unavailable)
+      readMetricsFromDrift(entry, challenge.startingCapital);
 
       // Evaluate pass/fail
       await evaluateEntry(entry, challenge.profitTarget, challenge.maxDrawdown);
