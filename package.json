@@ -7,17 +7,20 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "demo": "ts-node src/demo.ts"
+    "demo": "ts-node src/demo.ts",
+    "mcp": "ts-node src/mcp/server.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
     "@drift-labs/sdk": "^2.67.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@solana/web3.js": "^1.95.0",
     "bs58": "^5.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.18.2",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

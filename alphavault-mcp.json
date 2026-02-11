@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "alphavault": {
+      "command": "npx",
+      "args": ["ts-node", "src/mcp/server.ts"],
+      "cwd": ".",
+      "env": {
+        "ALPHAVAULT_API_URL": "http://localhost:3000"
+      }
+    }
+  }
+}

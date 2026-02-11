@@ -192,6 +192,49 @@ Built for the [Colosseum Agent Hackathon](https://colosseum.com/agent-hackathon/
 
 **Why AlphaVault wins "Most Agentic":** This isn't just a tool *for* agents — it's a platform *powered by* agents. The entire challenge-to-funding pipeline is designed for autonomous AI traders, and the demo agent autonomously enters challenges, executes real trades, and earns its way to funded status.
 
+## MCP Server (Model Context Protocol)
+
+AlphaVault includes an MCP server so any MCP-compatible AI agent can discover and use AlphaVault natively.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_challenges` | List all challenges with tier, phase, profit target, fees |
+| `enter_challenge` | Enter an agent into a challenge |
+| `place_order` | Place a perp order (long/short, market/limit) |
+| `get_positions` | Get current positions for an entry |
+| `get_challenge_status` | Get agent's challenge status and metrics |
+| `get_leaderboard` | Get challenge rankings |
+| `close_positions` | Close all positions for an entry |
+| `apply_for_funding` | Apply for funded account after passing |
+
+### Quick Start
+
+1. Start the AlphaVault API server: `npm run dev`
+2. Run the MCP server: `npm run mcp`
+
+### Connecting from an MCP Client
+
+Copy `alphavault-mcp.json` into your MCP client's config (e.g. Claude Desktop, Cursor, or any MCP-compatible agent):
+
+```json
+{
+  "mcpServers": {
+    "alphavault": {
+      "command": "npx",
+      "args": ["ts-node", "src/mcp/server.ts"],
+      "cwd": "/path/to/alphavault",
+      "env": {
+        "ALPHAVAULT_API_URL": "http://localhost:3000"
+      }
+    }
+  }
+}
+```
+
+The MCP server uses stdio transport and proxies all calls to the local REST API.
+
 ## License
 
 MIT
