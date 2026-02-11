@@ -15,6 +15,10 @@ const challenges: Map<string, Challenge> = new Map();
 const entries: Map<string, ChallengeEntry> = new Map();
 let subAccountCounter = -1;
 
+// On devnet, all agents share subaccount 0 (funded with collateral).
+// In production, each agent gets a unique subaccount funded by the vault.
+const DEVNET_SHARED_SUBACCOUNT = process.env.DRIFT_NETWORK !== 'mainnet-beta';
+
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -105,7 +109,7 @@ export function enterChallenge(
   }
 
   const entryId = uuid();
-  const subAccountId = ++subAccountCounter;
+  const subAccountId = DEVNET_SHARED_SUBACCOUNT ? 0 : ++subAccountCounter;
   const now = Date.now();
 
   const entry: ChallengeEntry = {

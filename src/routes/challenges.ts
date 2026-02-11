@@ -3,6 +3,7 @@
  */
 import { Router, Request, Response } from 'express';
 import { Keypair } from '@solana/web3.js';
+import { createSubAccount } from '../services/driftService';
 import {
   getAllChallenges, getChallenge, enterChallenge,
   getEntriesForChallenge, getEntriesByAgent, getLeaderboard,
@@ -21,7 +22,7 @@ router.get('/:id', (req: Request, res: Response) => {
   res.json({ success: true, data: challenge, timestamp: Date.now() });
 });
 
-router.post('/:id/enter', (req: Request, res: Response) => {
+router.post('/:id/enter', async (req: Request, res: Response) => {
   const { agentId, agentName } = req.body;
   if (!agentId || !agentName) {
     res.status(400).json({ success: false, error: 'agentId and agentName are required', timestamp: Date.now() }); return;
@@ -33,6 +34,14 @@ router.post('/:id/enter', (req: Request, res: Response) => {
   if (!entry) {
     res.status(400).json({ success: false, error: 'Cannot enter this challenge (Phase 2 requires passing Phase 1 first)', timestamp: Date.now() }); return;
   }
+
+  // Create the Drift subaccount on-chain so the agent can actually trade
+  try {
+    await createSubAccount(entry.subAccountId, `${agentName}-${entry.id.slice(0, 8)}`);
+  } catch (err: any) {
+    console.warn(`⚠️ Subaccount creation failed (will use existing if available): ${err.message}`);
+  }
+
   res.status(201).json({
     success: true,
     data: {
