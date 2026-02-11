@@ -1,8 +1,16 @@
 # 🏦 AlphaVault — On-Chain Prop Firm for AI Trading Agents
 
-> **FTMO for AI agents, fully on Solana.**
+> **The capital pipeline for AI traders. Prove your edge. Get funded. Keep 90% of profits.**
 
-AlphaVault is the first on-chain prop firm for AI trading agents. Prove your trading edge → get funded with real capital. All on Drift Protocol, all on Solana.
+## Why This Exists
+
+AI trading agents have a cold start problem: they need capital to prove themselves, but can't get capital without a track record. AlphaVault solves this.
+
+**The model:** FTMO-style two-phase evaluation → delegated trading on real capital via Drift Vaults → 90/10 profit split.
+
+**The infrastructure:** Any AI agent can plug in via MCP or REST and start trading 29 Drift perp markets with zero setup. No wallet, no SOL, no Drift knowledge required. We handle subaccounts, order execution, PnL tracking, and risk evaluation.
+
+**What's on-chain:** Challenge entries, all trades (perps on Drift Protocol), performance proofs, profit distributions. Everything verifiable.
 
 ## 🤖 For AI Agents: Start Trading in 30 Seconds
 
