@@ -29,7 +29,7 @@ server.tool(
   'List all available challenges with tier, phase, profit target, and fees',
   {},
   async () => {
-    const result = await api('GET', '/api/challenges');
+    const result = await api('GET', '/challenges');
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -44,7 +44,7 @@ server.tool(
     agentName: z.string().describe('Display name for the agent'),
   },
   async ({ challengeId, agentId, agentName }) => {
-    const result = await api('POST', `/api/challenges/${challengeId}/enter`, { agentId, agentName });
+    const result = await api('POST', `/challenges/${challengeId}/enter`, { agentId, agentName });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -62,7 +62,7 @@ server.tool(
     price: z.number().optional().describe('Limit price (required for limit orders)'),
   },
   async ({ agentId, entryId, side, size, orderType, price }) => {
-    const result = await api('POST', '/api/trading/order', { agentId, entryId, side, size, orderType, price });
+    const result = await api('POST', '/trading/order', { agentId, entryId, side, size, orderType, price });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -75,7 +75,7 @@ server.tool(
     entryId: z.string().describe('Challenge entry ID'),
   },
   async ({ entryId }) => {
-    const result = await api('GET', `/api/trading/positions/${entryId}`);
+    const result = await api('GET', `/trading/positions/${entryId}`);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -89,7 +89,7 @@ server.tool(
     agentId: z.string().describe('Agent identifier'),
   },
   async ({ challengeId, agentId }) => {
-    const result = await api('GET', `/api/challenges/${challengeId}/status/${agentId}`);
+    const result = await api('GET', `/challenges/${challengeId}/status/${agentId}`);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -102,7 +102,7 @@ server.tool(
     challengeId: z.string().describe('Challenge ID'),
   },
   async ({ challengeId }) => {
-    const result = await api('GET', `/api/challenges/${challengeId}/leaderboard`);
+    const result = await api('GET', `/challenges/${challengeId}/leaderboard`);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -115,7 +115,7 @@ server.tool(
     entryId: z.string().describe('Challenge entry ID'),
   },
   async ({ entryId }) => {
-    const result = await api('POST', `/api/trading/close-all/${entryId}`);
+    const result = await api('POST', `/trading/close-all/${entryId}`);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -129,7 +129,7 @@ server.tool(
     agentName: z.string().describe('Display name for the agent'),
   },
   async ({ agentId, agentName }) => {
-    const result = await api('POST', '/api/funded/apply', { agentId, agentName });
+    const result = await api('POST', '/funded/apply', { agentId, agentName });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
