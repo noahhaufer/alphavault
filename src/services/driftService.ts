@@ -79,6 +79,24 @@ export function getDriftClient(): DriftClient {
 }
 
 /**
+ * Deposit SOL as collateral into Drift subaccount
+ */
+export async function depositCollateral(
+  amountSol: number,
+  subAccountId: number = 0
+): Promise<string> {
+  const client = getDriftClient();
+  const keypair = getServiceKeypair();
+  
+  // Market index 1 = SOL spot, use BASE_PRECISION (1e9) for SOL amounts
+  const amount = new BN(amountSol * 1e9);
+  const txSig = await client.deposit(amount, 1, keypair.publicKey, subAccountId);
+  
+  console.log(`💰 Deposited ${amountSol} SOL to subaccount ${subAccountId} — tx: ${txSig}`);
+  return txSig;
+}
+
+/**
  * Initialize a Drift user subaccount for a challenge entry
  */
 export async function createSubAccount(
