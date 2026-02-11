@@ -9,11 +9,9 @@ import {
   closeAllPositions,
 } from '../services/driftService';
 import { getEntry } from '../services/challengeService';
-import { ApiResponse, PlaceOrderRequest } from '../types';
+import { ApiResponse, PlaceOrderRequest, resolveMarketIndex } from '../types';
 
 const router = Router();
-
-const SOL_PERP_MARKET_INDEX = 0;
 
 /**
  * POST /trading/order — place a perp order
@@ -21,7 +19,7 @@ const SOL_PERP_MARKET_INDEX = 0;
 router.post('/order', async (req: Request, res: Response) => {
   try {
     const body = req.body as PlaceOrderRequest;
-    const { agentId, entryId, side, size, orderType, price } = body;
+    const { agentId, entryId, side, size, orderType, price, market, leverage, stopLoss, takeProfit } = body;
 
     // Validate required fields
     if (!agentId || !entryId || !side || !size || !orderType) {
@@ -99,25 +97,55 @@ router.post('/order', async (req: Request, res: Response) => {
       return;
     }
 
+    // Resolve market name to index
+    let marketIndex: number;
+    try {
+      marketIndex = resolveMarketIndex(market);
+    } catch (err: any) {
+      res.status(400).json({
+        success: false,
+        error: err.message,
+        timestamp: Date.now(),
+      } as ApiResponse);
+      return;
+    }
+
+    // Validate leverage
+    if (leverage != null && (leverage < 1 || leverage > 20)) {
+      res.status(400).json({
+        success: false,
+        error: 'leverage must be between 1 and 20',
+        timestamp: Date.now(),
+      } as ApiResponse);
+      return;
+    }
+
     // Place order via Drift
     const txSignature = await placePerpOrder({
       subAccountId: entry.subAccountId,
-      marketIndex: SOL_PERP_MARKET_INDEX,
+      marketIndex,
       side,
       size,
       orderType,
       price,
+      leverage,
+      stopLoss,
+      takeProfit,
     });
 
     res.status(201).json({
       success: true,
       data: {
         txSignature,
-        marketIndex: SOL_PERP_MARKET_INDEX,
+        marketIndex,
+        market: market || 'SOL-PERP',
         side,
         size,
         orderType,
         price,
+        leverage,
+        stopLoss,
+        takeProfit,
         timestamp: Date.now(),
       },
       timestamp: Date.now(),

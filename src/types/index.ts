@@ -67,9 +67,55 @@ export interface ApiResponse<T = any> { success: boolean; data?: T; error?: stri
 export type OrderSide = 'long' | 'short';
 export type OrderKind = 'market' | 'limit';
 
+/** Supported Drift perp markets (devnet) */
+export const PERP_MARKET_MAP: Record<string, number> = {
+  'SOL-PERP': 0,
+  'BTC-PERP': 1,
+  'ETH-PERP': 2,
+  'APT-PERP': 3,
+  '1MBONK-PERP': 4,
+  'MATIC-PERP': 5,
+  'ARB-PERP': 6,
+  'DOGE-PERP': 7,
+  'BNB-PERP': 8,
+  'SUI-PERP': 9,
+  '1MPEPE-PERP': 10,
+  'OP-PERP': 11,
+  'RENDER-PERP': 12,
+  'XRP-PERP': 13,
+  'HNT-PERP': 14,
+  'INJ-PERP': 15,
+  'LINK-PERP': 16,
+  'RLB-PERP': 17,
+  'PYTH-PERP': 18,
+  'TIA-PERP': 19,
+  'JTO-PERP': 20,
+  'SEI-PERP': 21,
+  'WIF-PERP': 22,
+  'JUP-PERP': 23,
+  'DYM-PERP': 24,
+  'TAO-PERP': 25,
+  'W-PERP': 26,
+  'KMNO-PERP': 27,
+  'TNSR-PERP': 28,
+};
+
+export function resolveMarketIndex(market?: string): number {
+  if (market == null) return 0; // default SOL-PERP
+  const upper = market.toUpperCase();
+  if (upper in PERP_MARKET_MAP) return PERP_MARKET_MAP[upper];
+  const asNum = Number(market);
+  if (!isNaN(asNum) && asNum >= 0) return asNum;
+  throw new Error(`Unknown perp market: ${market}. Supported: ${Object.keys(PERP_MARKET_MAP).join(', ')}`);
+}
+
 export interface PlaceOrderRequest {
   agentId: string; entryId: string; side: OrderSide; size: number;
   orderType: OrderKind; price?: number;
+  market?: string;
+  leverage?: number;
+  stopLoss?: number;
+  takeProfit?: number;
 }
 
 export interface OrderResult {

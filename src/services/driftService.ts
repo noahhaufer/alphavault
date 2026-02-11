@@ -132,7 +132,8 @@ export async function delegateSubAccount(
 }
 
 /**
- * Place a perp order on behalf of a subaccount
+ * Place a perp order on behalf of a subaccount.
+ * Supports market, limit, stop-loss (trigger market), and take-profit (trigger limit).
  */
 export async function placePerpOrder(params: {
   subAccountId: number;
@@ -141,6 +142,9 @@ export async function placePerpOrder(params: {
   size: number;
   orderType: OrderKind;
   price?: number;
+  leverage?: number;
+  stopLoss?: number;
+  takeProfit?: number;
 }): Promise<string> {
   const client = getDriftClient();
 
@@ -150,7 +154,12 @@ export async function placePerpOrder(params: {
   const direction =
     params.side === 'long' ? PositionDirection.LONG : PositionDirection.SHORT;
 
-  const baseAssetAmount = client.convertToPerpPrecision(params.size);
+  // Apply leverage to size if specified
+  const effectiveSize = params.leverage && params.leverage > 1
+    ? params.size * params.leverage
+    : params.size;
+
+  const baseAssetAmount = client.convertToPerpPrecision(effectiveSize);
 
   const orderParams: any = {
     orderType:
@@ -168,7 +177,93 @@ export async function placePerpOrder(params: {
   const txSig = await client.placePerpOrder(orderParams, undefined, params.subAccountId);
 
   console.log(
-    `📈 Order placed: ${params.side} ${params.size} SOL-PERP (${params.orderType}) — tx: ${txSig}`
+    `📈 Order placed: ${params.side} ${effectiveSize} market#${params.marketIndex} (${params.orderType}) — tx: ${txSig}`
+  );
+
+  // Place stop-loss trigger order if specified
+  if (params.stopLoss != null && params.stopLoss > 0) {
+    await placeTriggerOrder({
+      client,
+      subAccountId: params.subAccountId,
+      marketIndex: params.marketIndex,
+      side: params.side,
+      size: effectiveSize,
+      triggerPrice: params.stopLoss,
+      isStopLoss: true,
+    });
+  }
+
+  // Place take-profit trigger order if specified
+  if (params.takeProfit != null && params.takeProfit > 0) {
+    await placeTriggerOrder({
+      client,
+      subAccountId: params.subAccountId,
+      marketIndex: params.marketIndex,
+      side: params.side,
+      size: effectiveSize,
+      triggerPrice: params.takeProfit,
+      isStopLoss: false,
+    });
+  }
+
+  return txSig;
+}
+
+/**
+ * Place a trigger order (stop-loss or take-profit) to close a position.
+ */
+async function placeTriggerOrder(params: {
+  client: DriftClient;
+  subAccountId: number;
+  marketIndex: number;
+  side: OrderSide;
+  size: number;
+  triggerPrice: number;
+  isStopLoss: boolean;
+}): Promise<string> {
+  // Closing direction is opposite of the position
+  const closeDirection =
+    params.side === 'long' ? PositionDirection.SHORT : PositionDirection.LONG;
+
+  const baseAssetAmount = params.client.convertToPerpPrecision(params.size);
+  const triggerPriceBN = new BN(params.triggerPrice).mul(PRICE_PRECISION);
+
+  // Stop-loss: trigger when price moves against position
+  // Take-profit: trigger when price moves in favor
+  // For longs: SL triggers below (triggerBelow), TP triggers above (triggerAbove)
+  // For shorts: SL triggers above (triggerAbove), TP triggers below (triggerBelow)
+  const isLong = params.side === 'long';
+  const triggerBelow = params.isStopLoss ? isLong : !isLong;
+
+  const orderType = params.isStopLoss
+    ? OrderType.TRIGGER_MARKET
+    : OrderType.TRIGGER_LIMIT;
+
+  const orderParams: any = {
+    orderType,
+    marketType: MarketType.PERP,
+    marketIndex: params.marketIndex,
+    direction: closeDirection,
+    baseAssetAmount,
+    triggerPrice: triggerPriceBN,
+    triggerCondition: triggerBelow ? { below: {} } : { above: {} },
+    reduceOnly: true,
+  };
+
+  // For trigger limit, set the price to the trigger price
+  if (orderType === OrderType.TRIGGER_LIMIT) {
+    orderParams.price = triggerPriceBN;
+  }
+
+  const txSig = await params.client.placePerpOrder(
+    orderParams,
+    undefined,
+    params.subAccountId
+  );
+
+  const label = params.isStopLoss ? 'Stop-loss' : 'Take-profit';
+  console.log(
+    `🛡️ ${label} placed: market#${params.marketIndex} @ ${params.triggerPrice} — tx: ${txSig}`
   );
 
   return txSig;

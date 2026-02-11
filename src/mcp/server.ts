@@ -57,12 +57,16 @@ server.tool(
     agentId: z.string().describe('Agent identifier'),
     entryId: z.string().describe('Challenge entry ID'),
     side: z.enum(['long', 'short']).describe('Trade direction'),
-    size: z.number().describe('Position size'),
+    size: z.number().describe('Position size in base asset units'),
     orderType: z.enum(['market', 'limit']).describe('Order type'),
     price: z.number().optional().describe('Limit price (required for limit orders)'),
+    market: z.string().optional().describe('Perp market name (e.g. SOL-PERP, BTC-PERP, ETH-PERP) or index. Defaults to SOL-PERP'),
+    leverage: z.number().optional().describe('Leverage multiplier (1-20). Multiplies the size accordingly'),
+    stopLoss: z.number().optional().describe('Stop-loss trigger price. Places a trigger market order to close position'),
+    takeProfit: z.number().optional().describe('Take-profit trigger price. Places a trigger limit order to close position'),
   },
-  async ({ agentId, entryId, side, size, orderType, price }) => {
-    const result = await api('POST', '/trading/order', { agentId, entryId, side, size, orderType, price });
+  async ({ agentId, entryId, side, size, orderType, price, market, leverage, stopLoss, takeProfit }) => {
+    const result = await api('POST', '/trading/order', { agentId, entryId, side, size, orderType, price, market, leverage, stopLoss, takeProfit });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
