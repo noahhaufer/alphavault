@@ -13,7 +13,7 @@ import {
 const challenges: Map<string, Challenge> = new Map();
 const entries: Map<string, ChallengeEntry> = new Map();
 
-let subAccountCounter = 0;
+let subAccountCounter = -1;
 
 function defaultMetrics(startingCapital: number): PerformanceMetrics {
   return {

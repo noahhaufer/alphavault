@@ -44,6 +44,12 @@ export function readMetricsFromDrift(
     const { equity, unrealizedPnl } = getAccountMetrics(entry.subAccountId);
     const positions = getPositions(entry.subAccountId);
 
+    // If real equity is far from starting capital, it's a virtual challenge — use simulation
+    if (equity > 0 && Math.abs(equity - startingCapital) > startingCapital * 0.5) {
+      simulateMetricUpdate(entry, startingCapital);
+      return;
+    }
+
     // Use equity from Drift, fall back to startingCapital + unrealizedPnl
     const currentEquity = equity > 0 ? equity : startingCapital + unrealizedPnl;
     const currentPnl = currentEquity - startingCapital;
@@ -94,7 +100,7 @@ export function simulateMetricUpdate(
 ): void {
   const m = entry.metrics;
 
-  const pnlDelta = (Math.random() - 0.42) * startingCapital * 0.005;
+  const pnlDelta = (Math.random() - 0.48) * startingCapital * 0.003;
   const newPnl = m.currentPnl + pnlDelta;
   const newEquity = startingCapital + newPnl;
 
