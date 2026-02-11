@@ -50,14 +50,9 @@ export function hashData(data: Record<string, any>): string {
  */
 export async function storeProofOnChain(
   payer: Keypair,
-  proof: {
+  proof: Record<string, any> & {
     type: 'challenge_result' | 'funded_status';
     agentId: string;
-    challengeId?: string;
-    pnlPercent: number;
-    maxDrawdown: number;
-    sharpeRatio: number;
-    passed: boolean;
     timestamp: number;
   }
 ): Promise<string> {
@@ -71,8 +66,8 @@ export async function storeProofOnChain(
     type: proof.type,
     agent: proof.agentId,
     result: proof.passed ? 'PASS' : 'FAIL',
-    pnl: proof.pnlPercent.toFixed(2),
-    dd: proof.maxDrawdown.toFixed(2),
+    pnl: (proof.pnlPercent ?? 0).toFixed(2),
+    dd: (proof.maxDrawdown ?? 0).toFixed(2),
     ts: proof.timestamp,
   });
 

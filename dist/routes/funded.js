@@ -6,15 +6,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const fundedService_1 = require("../services/fundedService");
 const router = (0, express_1.Router)();
-/** POST /funded/apply — apply for funded account */
 router.post('/apply', (req, res) => {
     const { agentId, agentName } = req.body;
     if (!agentId || !agentName) {
-        res.status(400).json({
-            success: false,
-            error: 'agentId and agentName required',
-            timestamp: Date.now(),
-        });
+        res.status(400).json({ success: false, error: 'agentId and agentName required', timestamp: Date.now() });
         return;
     }
     const result = (0, fundedService_1.applyForFunding)(agentId, agentName);
@@ -24,24 +19,17 @@ router.post('/apply', (req, res) => {
     }
     res.status(201).json({ success: true, data: result, timestamp: Date.now() });
 });
-/** GET /funded/:agentId/status — funded account status */
 router.get('/:agentId/status', (req, res) => {
     const account = (0, fundedService_1.getFundedStatus)(req.params.agentId);
     if (!account) {
-        res.status(404).json({
-            success: false,
-            error: 'No funded account found for this agent',
-            timestamp: Date.now(),
-        });
+        res.status(404).json({ success: false, error: 'No funded account found', timestamp: Date.now() });
         return;
     }
     res.json({ success: true, data: account, timestamp: Date.now() });
 });
-/** GET /funded — list all funded accounts */
 router.get('/', (_req, res) => {
     res.json({ success: true, data: (0, fundedService_1.getAllFundedAccounts)(), timestamp: Date.now() });
 });
-/** POST /funded/:accountId/withdraw-profits — withdraw available profits */
 router.post('/:accountId/withdraw-profits', (req, res) => {
     const result = (0, fundedService_1.withdrawProfits)(req.params.accountId);
     if ('error' in result) {
@@ -50,7 +38,6 @@ router.post('/:accountId/withdraw-profits', (req, res) => {
     }
     res.json({ success: true, data: result, timestamp: Date.now() });
 });
-/** GET /funded/:accountId/performance — performance summary */
 router.get('/:accountId/performance', (req, res) => {
     const result = (0, fundedService_1.getPerformance)(req.params.accountId);
     if ('error' in result) {

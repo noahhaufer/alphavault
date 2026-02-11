@@ -70,12 +70,12 @@ async function main() {
     for (const c of challenges) {
         console.log(`\n  📌 ${c.name}`);
         console.log(`     ${c.description}`);
-        console.log(`     Capital: $${c.startingCapital.toLocaleString()} | Target: ${c.profitTarget}% | Max DD: ${c.maxDrawdown}%`);
+        console.log(`     Capital: $${c.startingCapital.toLocaleString()} | Phase ${c.phase} | Target: ${c.profitTarget}% | Daily Loss: ${c.maxDailyLoss}% | Total Loss: ${c.maxTotalLoss}% | Fee: $${c.challengeFee}`);
     }
     // ── Step 3: Enter Starter Challenge ──
-    const starter = challenges.find((c) => c.name === 'Starter Challenge');
+    const starter = challenges.find((c) => c.startingCapital === 10000 && c.phase === 1);
     if (!starter)
-        throw new Error('Starter Challenge not found!');
+        throw new Error('$10k Challenge Phase 1 not found!');
     banner('🚀 Entering Starter Challenge');
     const enterResult = await api('POST', `/challenges/${starter.id}/enter`, {
         agentId: AGENT_ID,

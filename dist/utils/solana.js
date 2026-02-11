@@ -54,8 +54,8 @@ async function storeProofOnChain(payer, proof) {
         type: proof.type,
         agent: proof.agentId,
         result: proof.passed ? 'PASS' : 'FAIL',
-        pnl: proof.pnlPercent.toFixed(2),
-        dd: proof.maxDrawdown.toFixed(2),
+        pnl: (proof.pnlPercent ?? 0).toFixed(2),
+        dd: (proof.maxDrawdown ?? 0).toFixed(2),
         ts: proof.timestamp,
     });
     const instruction = new web3_js_1.TransactionInstruction({

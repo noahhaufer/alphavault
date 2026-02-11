@@ -2,28 +2,33 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.applyForFunding = applyForFunding;
 exports.getFundedStatus = getFundedStatus;
+exports.getFundedAccountById = getFundedAccountById;
 exports.activateFundedAccount = activateFundedAccount;
 exports.getAllFundedAccounts = getAllFundedAccounts;
-exports.getFundedAccountById = getFundedAccountById;
+exports.checkFundedLossLimits = checkFundedLossLimits;
 exports.withdrawProfits = withdrawProfits;
 exports.getPerformance = getPerformance;
 /**
  * Funded Account Service — manages post-challenge funded allocations
+ *
+ * Requires passing BOTH Phase 1 (Challenge) and Phase 2 (Verification).
+ * Funded accounts: no profit target, same loss limits (5% daily, 10% total).
+ * Agent can withdraw profits anytime — 90% agent, 10% protocol fee.
+ * If loss limits breached → account frozen/revoked.
  */
 const uuid_1 = require("uuid");
 const challengeService_1 = require("./challengeService");
 const solana_1 = require("../utils/solana");
 const fundedAccounts = new Map();
-/** Allocation tiers based on challenge capital */
-const ALLOCATION_MULTIPLIER = 5; // 5x the challenge capital
+const ALLOCATION_MULTIPLIER = 5;
+const DEFAULT_PROTOCOL_FEE_BPS = 1000;
+const MAX_DAILY_LOSS_PCT = 5;
+const MAX_TOTAL_LOSS_PCT = 10;
 function applyForFunding(agentId, agentName) {
-    // Check if agent passed any challenge
-    const entries = (0, challengeService_1.getEntriesByAgent)(agentId);
-    const passed = entries.find((e) => e.status === 'passed');
-    if (!passed) {
-        return { error: 'Agent has not passed any challenge yet' };
+    const result = (0, challengeService_1.hasPassedBothPhases)(agentId);
+    if (!result) {
+        return { error: 'Agent must pass both Phase 1 (Challenge) and Phase 2 (Verification) to get funded' };
     }
-    // Check if already has funded account
     for (const fa of fundedAccounts.values()) {
         if (fa.agentId === agentId && (fa.status === 'active' || fa.status === 'pending')) {
             return fa;
@@ -33,10 +38,14 @@ function applyForFunding(agentId, agentName) {
         id: (0, uuid_1.v4)(),
         agentId,
         agentName,
-        challengeEntryId: passed.id,
-        allocation: 10000 * ALLOCATION_MULTIPLIER, // Based on starter challenge
+        challengeEntryId: result.phase1.id,
+        verificationEntryId: result.phase2.id,
+        allocation: 10000 * ALLOCATION_MULTIPLIER,
         status: 'pending',
         appliedAt: Date.now(),
+        protocolFeeBps: DEFAULT_PROTOCOL_FEE_BPS,
+        maxDailyLoss: MAX_DAILY_LOSS_PCT,
+        maxTotalLoss: MAX_TOTAL_LOSS_PCT,
     };
     fundedAccounts.set(account.id, account);
     console.log(`💰 Funded account application: ${agentName} (${agentId}) — $${account.allocation}`);
@@ -49,6 +58,9 @@ function getFundedStatus(agentId) {
     }
     return undefined;
 }
+function getFundedAccountById(accountId) {
+    return fundedAccounts.get(accountId);
+}
 async function activateFundedAccount(accountId) {
     const account = fundedAccounts.get(accountId);
     if (!account || account.status !== 'pending')
@@ -60,10 +72,9 @@ async function activateFundedAccount(accountId) {
         account.proofTx = await (0, solana_1.storeProofOnChain)(keypair, {
             type: 'funded_status',
             agentId: account.agentId,
+            passed: true,
             pnlPercent: 0,
             maxDrawdown: 0,
-            sharpeRatio: 0,
-            passed: true,
             timestamp: Date.now(),
         });
     }
@@ -73,33 +84,33 @@ async function activateFundedAccount(accountId) {
 function getAllFundedAccounts() {
     return Array.from(fundedAccounts.values());
 }
-function getFundedAccountById(accountId) {
-    return fundedAccounts.get(accountId);
-}
-/** Default protocol fee: 20% (2000 bps) */
-const DEFAULT_PROTOCOL_FEE_BPS = 2000;
-/**
- * Simulate current equity for a funded account.
- * In production this would query Drift on-chain data.
- */
 function refreshEquity(account) {
     if (account.currentEquity === undefined) {
-        // Simulate some profit: allocation + random 0-15%
         account.currentEquity = account.allocation * (1 + Math.random() * 0.15);
     }
     return account.currentEquity;
 }
-/**
- * Withdraw profits from a funded account.
- * Agent can only withdraw profits (equity - allocation), not principal.
- * Protocol takes a configurable fee (default 20%).
- */
+function checkFundedLossLimits(accountId) {
+    const account = fundedAccounts.get(accountId);
+    if (!account || account.status !== 'active')
+        return { breached: false };
+    const equity = refreshEquity(account);
+    const totalLossPct = ((account.allocation - equity) / account.allocation) * 100;
+    if (totalLossPct > account.maxTotalLoss) {
+        account.status = 'revoked';
+        return { breached: true, reason: `Total loss ${totalLossPct.toFixed(2)}% exceeded ${account.maxTotalLoss}% limit` };
+    }
+    return { breached: false };
+}
 function withdrawProfits(accountId) {
     const account = fundedAccounts.get(accountId);
     if (!account)
         return { error: 'Funded account not found' };
     if (account.status !== 'active')
         return { error: 'Account is not active' };
+    const lossCheck = checkFundedLossLimits(accountId);
+    if (lossCheck.breached)
+        return { error: `Account revoked: ${lossCheck.reason}` };
     const equity = refreshEquity(account);
     const feeBps = account.protocolFeeBps ?? DEFAULT_PROTOCOL_FEE_BPS;
     const profit = equity - account.allocation;
@@ -108,25 +119,12 @@ function withdrawProfits(accountId) {
     }
     const protocolFee = profit * (feeBps / 10000);
     const agentPayout = profit - protocolFee;
-    // Simulate withdrawal: reset equity to allocation
     account.currentEquity = account.allocation;
     account.totalWithdrawn = (account.totalWithdrawn ?? 0) + agentPayout;
-    // Simulated tx signature
     const txSignature = `sim_withdraw_${accountId.slice(0, 8)}_${Date.now().toString(36)}`;
-    console.log(`💸 Profit withdrawal: ${account.agentName} — profit=$${profit.toFixed(2)}, agent=$${agentPayout.toFixed(2)}, fee=$${protocolFee.toFixed(2)}`);
-    return {
-        txSignature,
-        initialAllocation: account.allocation,
-        currentEquity: equity,
-        totalProfit: profit,
-        protocolFee,
-        agentPayout,
-        feeRateBps: feeBps,
-    };
+    console.log(`💸 Profit withdrawal: agent=$${agentPayout.toFixed(2)} (90%), fee=$${protocolFee.toFixed(2)} (10%)`);
+    return { txSignature, initialAllocation: account.allocation, currentEquity: equity, totalProfit: profit, protocolFee, agentPayout, feeRateBps: feeBps };
 }
-/**
- * Get performance summary for a funded account.
- */
 function getPerformance(accountId) {
     const account = fundedAccounts.get(accountId);
     if (!account)

@@ -11,14 +11,9 @@ export declare function hashData(data: Record<string, any>): string;
  * Store a performance proof on-chain via memo program
  * Returns the transaction signature
  */
-export declare function storeProofOnChain(payer: Keypair, proof: {
+export declare function storeProofOnChain(payer: Keypair, proof: Record<string, any> & {
     type: 'challenge_result' | 'funded_status';
     agentId: string;
-    challengeId?: string;
-    pnlPercent: number;
-    maxDrawdown: number;
-    sharpeRatio: number;
-    passed: boolean;
     timestamp: number;
 }): Promise<string>;
 /**

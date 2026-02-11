@@ -37,7 +37,7 @@ async function main() {
   console.log('\n📋 Available Challenges:');
   const { data: challenges } = await api('GET', '/challenges');
   for (const c of challenges) {
-    console.log(`   • ${c.name} — $${c.startingCapital.toLocaleString()} | ${c.durationHours}h | Target: ${c.profitTarget}% | Max DD: ${c.maxDrawdown}%`);
+    console.log(`   • ${c.name} — $${c.startingCapital.toLocaleString()} | Phase ${c.phase} | ${c.durationDays}d | Target: ${c.profitTarget}% | Daily Loss: ${c.maxDailyLoss}% | Total Loss: ${c.maxTotalLoss}% | Fee: $${c.challengeFee}`);
   }
 
   const targetChallenge = challenges[0]; // Starter Challenge

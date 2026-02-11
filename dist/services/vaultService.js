@@ -1,19 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.SCALE_UP_MIN_PROFIT_PERCENT = exports.SCALE_UP_REQUIRED_MONTHS = exports.SCALE_UP_PERCENT = exports.PAYOUT_INTERVAL_MS = void 0;
 exports.createVault = createVault;
 exports.getVault = getVault;
 exports.getAllVaults = getAllVaults;
 exports.getVaultsForAgent = getVaultsForAgent;
 exports.refreshVaultMetrics = refreshVaultMetrics;
 exports.calculateProfitSplit = calculateProfitSplit;
+exports.checkScaleUp = checkScaleUp;
 exports.freezeVault = freezeVault;
 exports.getVaultPerformance = getVaultPerformance;
 /**
  * Vault Service — Drift vault management for funded accounts
  *
- * In production, this would use @drift-labs/vaults-sdk for on-chain vault creation.
- * For now, we manage vaults as Drift subaccounts with delegated trading authority
- * and track profit splits off-chain.
+ * 90/10 profit split (agent keeps 90%, protocol takes 10%).
+ * Bi-weekly payout cycle. Scale-up logic for consecutive profitability.
  */
 const web3_js_1 = require("@solana/web3.js");
 const driftService_1 = require("./driftService");
@@ -21,16 +22,20 @@ const driftService_1 = require("./driftService");
 const vaults = new Map();
 /** Subaccount counter for vaults (start at 1000 to avoid collision with challenge entries) */
 let vaultSubAccountCounter = 1000;
-/** Default profit split: 80% agent, 20% vault (LPs) */
-const DEFAULT_AGENT_PROFIT_SHARE_BPS = 8000;
+/** 90/10 split: agent gets 90%, protocol gets 10% (1000 bps) */
+const DEFAULT_AGENT_PROFIT_SHARE_BPS = 9000;
+/** Bi-weekly payout interval in ms (14 days) */
+exports.PAYOUT_INTERVAL_MS = 14 * 24 * 3600000;
+/** Scale-up: 25% increase if profitable 2 consecutive months with 10%+ total profit */
+exports.SCALE_UP_PERCENT = 25;
+exports.SCALE_UP_REQUIRED_MONTHS = 2;
+exports.SCALE_UP_MIN_PROFIT_PERCENT = 10;
 /**
  * Create a Drift vault (subaccount) for a funded agent
  */
 async function createVault(config) {
     const subAccountId = ++vaultSubAccountCounter;
-    // Create Drift subaccount for the vault
     const { pubkey } = await (0, driftService_1.createSubAccount)(subAccountId, `vault-${config.name}`);
-    // Delegate trading to the agent
     await (0, driftService_1.delegateSubAccount)(subAccountId, new web3_js_1.PublicKey(config.delegateAuthority));
     const vault = {
         pubkey,
@@ -44,30 +49,18 @@ async function createVault(config) {
         subAccountId,
     };
     vaults.set(pubkey, vault);
-    console.log(`🏦 Vault created: ${config.name} — pubkey: ${pubkey}, delegate: ${config.delegateAuthority}`);
+    console.log(`🏦 Vault created: ${config.name} — pubkey: ${pubkey}, delegate: ${config.delegateAuthority}, split: 90/10`);
     return vault;
 }
-/**
- * Get vault info
- */
 function getVault(pubkey) {
     return vaults.get(pubkey);
 }
-/**
- * Get all vaults
- */
 function getAllVaults() {
     return Array.from(vaults.values());
 }
-/**
- * Get vaults delegated to a specific agent
- */
 function getVaultsForAgent(delegateAuthority) {
     return Array.from(vaults.values()).filter((v) => v.delegateAuthority === delegateAuthority);
 }
-/**
- * Update vault equity from Drift on-chain data
- */
 function refreshVaultMetrics(pubkey) {
     const vault = vaults.get(pubkey);
     if (!vault)
@@ -83,8 +76,7 @@ function refreshVaultMetrics(pubkey) {
     }
 }
 /**
- * Calculate profit split for a vault
- * Returns { agentProfit, vaultProfit } in USDC
+ * Calculate profit split for a vault (90/10)
  */
 function calculateProfitSplit(pubkey) {
     const vault = vaults.get(pubkey);
@@ -93,26 +85,33 @@ function calculateProfitSplit(pubkey) {
     refreshVaultMetrics(pubkey);
     const totalProfit = vault.currentEquity - vault.totalDeposits;
     if (totalProfit <= 0) {
-        return { totalProfit, agentProfit: 0, vaultProfit: 0 };
+        return { totalProfit, agentProfit: 0, protocolProfit: 0 };
     }
     const agentShare = vault.agentProfitShareBps / 10000;
     return {
         totalProfit,
         agentProfit: totalProfit * agentShare,
-        vaultProfit: totalProfit * (1 - agentShare),
+        protocolProfit: totalProfit * (1 - agentShare),
     };
 }
 /**
- * Freeze a vault (disable trading)
+ * Check if a funded account qualifies for scale-up.
+ * Criteria: profitable 2 consecutive months with 10%+ total profit.
+ * Returns the new allocation if eligible, or null.
  */
+function checkScaleUp(currentAllocation, consecutiveProfitableMonths, consecutiveProfit) {
+    if (consecutiveProfitableMonths >= exports.SCALE_UP_REQUIRED_MONTHS &&
+        consecutiveProfit >= exports.SCALE_UP_MIN_PROFIT_PERCENT) {
+        return Math.round(currentAllocation * (1 + exports.SCALE_UP_PERCENT / 100));
+    }
+    return null;
+}
 async function freezeVault(pubkey) {
     const vault = vaults.get(pubkey);
     if (!vault)
         return false;
-    // Revoke delegation by setting delegate to system program (effectively disabling)
     try {
-        await (0, driftService_1.delegateSubAccount)(vault.subAccountId, web3_js_1.PublicKey.default // SystemProgram = no delegate
-        );
+        await (0, driftService_1.delegateSubAccount)(vault.subAccountId, web3_js_1.PublicKey.default);
         vault.status = 'frozen';
         console.log(`🔒 Vault frozen: ${pubkey}`);
         return true;
@@ -122,9 +121,6 @@ async function freezeVault(pubkey) {
         return false;
     }
 }
-/**
- * Get vault performance summary
- */
 function getVaultPerformance(pubkey) {
     const vault = vaults.get(pubkey);
     if (!vault)

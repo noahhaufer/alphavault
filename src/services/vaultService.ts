@@ -1,9 +1,5 @@
 /**
- * Vault Service — Drift vault management for funded accounts
- *
- * In production, this would use @drift-labs/vaults-sdk for on-chain vault creation.
- * For now, we manage vaults as Drift subaccounts with delegated trading authority
- * and track profit splits off-chain.
+ * Vault Service — 90/10 profit split, bi-weekly payouts, scale-up logic
  */
 import { PublicKey } from '@solana/web3.js';
 import { v4 as uuid } from 'uuid';
@@ -16,34 +12,20 @@ import {
 } from './driftService';
 import { VaultConfig, VaultInfo } from '../types';
 
-/** In-memory vault store */
 const vaults: Map<string, VaultInfo & { subAccountId: number }> = new Map();
-
-/** Subaccount counter for vaults (start at 1000 to avoid collision with challenge entries) */
 let vaultSubAccountCounter = 1000;
 
-/** Default profit split: 80% agent, 20% vault (LPs) */
-const DEFAULT_AGENT_PROFIT_SHARE_BPS = 8000;
+const DEFAULT_AGENT_PROFIT_SHARE_BPS = 9000;
 
-/**
- * Create a Drift vault (subaccount) for a funded agent
- */
-export async function createVault(
-  config: VaultConfig
-): Promise<VaultInfo> {
+export const PAYOUT_INTERVAL_MS = 14 * 24 * 3600_000;
+export const SCALE_UP_PERCENT = 25;
+export const SCALE_UP_REQUIRED_MONTHS = 2;
+export const SCALE_UP_MIN_PROFIT_PERCENT = 10;
+
+export async function createVault(config: VaultConfig): Promise<VaultInfo> {
   const subAccountId = ++vaultSubAccountCounter;
-
-  // Create Drift subaccount for the vault
-  const { pubkey } = await createSubAccount(
-    subAccountId,
-    `vault-${config.name}`
-  );
-
-  // Delegate trading to the agent
-  await delegateSubAccount(
-    subAccountId,
-    new PublicKey(config.delegateAuthority)
-  );
+  const { pubkey } = await createSubAccount(subAccountId, `vault-${config.name}`);
+  await delegateSubAccount(subAccountId, new PublicKey(config.delegateAuthority));
 
   const vault: VaultInfo & { subAccountId: number } = {
     pubkey,
@@ -58,93 +40,45 @@ export async function createVault(
   };
 
   vaults.set(pubkey, vault);
-  console.log(
-    `🏦 Vault created: ${config.name} — pubkey: ${pubkey}, delegate: ${config.delegateAuthority}`
-  );
-
+  console.log(`🏦 Vault created: ${config.name} — split: 90/10`);
   return vault;
 }
 
-/**
- * Get vault info
- */
-export function getVault(pubkey: string): VaultInfo | undefined {
-  return vaults.get(pubkey);
+export function getVault(pubkey: string): VaultInfo | undefined { return vaults.get(pubkey); }
+export function getAllVaults(): VaultInfo[] { return Array.from(vaults.values()); }
+export function getVaultsForAgent(delegate: string): VaultInfo[] {
+  return Array.from(vaults.values()).filter((v) => v.delegateAuthority === delegate);
 }
 
-/**
- * Get all vaults
- */
-export function getAllVaults(): VaultInfo[] {
-  return Array.from(vaults.values());
-}
-
-/**
- * Get vaults delegated to a specific agent
- */
-export function getVaultsForAgent(delegateAuthority: string): VaultInfo[] {
-  return Array.from(vaults.values()).filter(
-    (v) => v.delegateAuthority === delegateAuthority
-  );
-}
-
-/**
- * Update vault equity from Drift on-chain data
- */
 export function refreshVaultMetrics(pubkey: string): VaultInfo | null {
   const vault = vaults.get(pubkey);
   if (!vault) return null;
-
-  try {
-    const metrics = getAccountMetrics(vault.subAccountId);
-    vault.currentEquity = metrics.equity;
-    return vault;
-  } catch (err: any) {
-    console.warn(`Failed to refresh vault ${pubkey}: ${err.message}`);
-    return vault;
-  }
+  try { vault.currentEquity = getAccountMetrics(vault.subAccountId).equity; } catch {}
+  return vault;
 }
 
-/**
- * Calculate profit split for a vault
- * Returns { agentProfit, vaultProfit } in USDC
- */
-export function calculateProfitSplit(pubkey: string): {
-  totalProfit: number;
-  agentProfit: number;
-  vaultProfit: number;
-} | null {
+export function calculateProfitSplit(pubkey: string): { totalProfit: number; agentProfit: number; protocolProfit: number } | null {
   const vault = vaults.get(pubkey);
   if (!vault) return null;
-
   refreshVaultMetrics(pubkey);
-
   const totalProfit = vault.currentEquity - vault.totalDeposits;
-  if (totalProfit <= 0) {
-    return { totalProfit, agentProfit: 0, vaultProfit: 0 };
-  }
-
+  if (totalProfit <= 0) return { totalProfit, agentProfit: 0, protocolProfit: 0 };
   const agentShare = vault.agentProfitShareBps / 10000;
-  return {
-    totalProfit,
-    agentProfit: totalProfit * agentShare,
-    vaultProfit: totalProfit * (1 - agentShare),
-  };
+  return { totalProfit, agentProfit: totalProfit * agentShare, protocolProfit: totalProfit * (1 - agentShare) };
 }
 
-/**
- * Freeze a vault (disable trading)
- */
+export function checkScaleUp(currentAllocation: number, consecutiveProfitableMonths: number, consecutiveProfit: number): number | null {
+  if (consecutiveProfitableMonths >= SCALE_UP_REQUIRED_MONTHS && consecutiveProfit >= SCALE_UP_MIN_PROFIT_PERCENT) {
+    return Math.round(currentAllocation * (1 + SCALE_UP_PERCENT / 100));
+  }
+  return null;
+}
+
 export async function freezeVault(pubkey: string): Promise<boolean> {
   const vault = vaults.get(pubkey);
   if (!vault) return false;
-
-  // Revoke delegation by setting delegate to system program (effectively disabling)
   try {
-    await delegateSubAccount(
-      vault.subAccountId,
-      PublicKey.default // SystemProgram = no delegate
-    );
+    await delegateSubAccount(vault.subAccountId, PublicKey.default);
     vault.status = 'frozen';
     console.log(`🔒 Vault frozen: ${pubkey}`);
     return true;
@@ -154,25 +88,10 @@ export async function freezeVault(pubkey: string): Promise<boolean> {
   }
 }
 
-/**
- * Get vault performance summary
- */
-export function getVaultPerformance(pubkey: string): {
-  vault: VaultInfo;
-  positions: ReturnType<typeof getPositions>;
-  profitSplit: ReturnType<typeof calculateProfitSplit>;
-} | null {
+export function getVaultPerformance(pubkey: string) {
   const vault = vaults.get(pubkey);
   if (!vault) return null;
-
   let positions: ReturnType<typeof getPositions> = [];
-  try {
-    positions = getPositions(vault.subAccountId);
-  } catch {
-    // Subaccount may not be active
-  }
-
-  const profitSplit = calculateProfitSplit(pubkey);
-
-  return { vault, positions, profitSplit };
+  try { positions = getPositions(vault.subAccountId); } catch {}
+  return { vault, positions, profitSplit: calculateProfitSplit(pubkey) };
 }

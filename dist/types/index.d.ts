@@ -1,19 +1,33 @@
 /**
  * AlphaVault Type Definitions
+ *
+ * Two-phase challenge system (prop firm style):
+ *   Phase 1 (Challenge): 8% profit target, 5% max daily loss, 10% max total loss, min 10 trading days, 30-day window
+ *   Phase 2 (Verification): 5% profit target, same loss limits, min 10 trading days, 60-day window
+ *   Agent must pass BOTH phases to get funded.
+ *
+ * Funded accounts: no profit target, same loss limits, 90/10 profit split (agent/protocol).
  */
+export type ChallengePhase = 1 | 2;
+export interface AccountTier {
+    /** Starting capital in USDC */
+    capital: number;
+    /** Challenge fee in USDC (refundable on pass) */
+    fee: number;
+}
+export declare const ACCOUNT_TIERS: AccountTier[];
 export interface Challenge {
     id: string;
     name: string;
     description: string;
-    /** Starting capital in USDC */
     startingCapital: number;
-    /** Duration in hours */
-    durationHours: number;
-    /** Required profit % to pass */
+    durationDays: number;
     profitTarget: number;
-    /** Max allowed drawdown % */
-    maxDrawdown: number;
-    /** Market to trade */
+    maxDailyLoss: number;
+    maxTotalLoss: number;
+    minTradingDays: number;
+    phase: ChallengePhase;
+    challengeFee: number;
     market: string;
     status: 'active' | 'upcoming' | 'completed';
     createdAt: number;
@@ -23,49 +37,67 @@ export interface ChallengeEntry {
     challengeId: string;
     agentId: string;
     agentName: string;
-    /** Drift subaccount index */
     subAccountId: number;
-    /** Public key of the subaccount authority */
     authority: string;
     startedAt: number;
     endsAt: number;
     status: 'active' | 'passed' | 'failed' | 'expired';
     metrics: PerformanceMetrics;
-    /** Solana tx signature of on-chain proof */
     proofTx?: string;
+    phase: ChallengePhase;
+    phase1EntryId?: string;
 }
 export interface PerformanceMetrics {
     currentPnl: number;
     currentPnlPercent: number;
     maxDrawdown: number;
     maxDrawdownPercent: number;
+    maxDailyLoss: number;
+    maxDailyLossPercent: number;
+    dailyLoss: number;
+    dailyLossPercent: number;
+    dailyLossDate: string;
     peakEquity: number;
     currentEquity: number;
     sharpeRatio: number;
     totalTrades: number;
     winRate: number;
-    /** Rolling PnL snapshots for Sharpe calculation */
     pnlHistory: number[];
+    tradingDays: string[];
+}
+export interface PayoutSchedule {
+    id: string;
+    fundedAccountId: string;
+    availableAt: number;
+    amount: number;
+    status: 'pending' | 'paid' | 'skipped';
+    paidAt?: number;
+    txSignature?: string;
 }
 export interface FundedAccount {
     id: string;
     agentId: string;
     agentName: string;
     challengeEntryId: string;
+    verificationEntryId: string;
     allocation: number;
     status: 'pending' | 'active' | 'suspended' | 'revoked';
     appliedAt: number;
     activatedAt?: number;
     performanceMetrics?: PerformanceMetrics;
     proofTx?: string;
-    /** Drift vault pubkey (if created) */
     vaultPubkey?: string;
-    /** Current equity (updated on refresh) */
     currentEquity?: number;
-    /** Total profits withdrawn so far */
     totalWithdrawn?: number;
-    /** Protocol fee rate in basis points (default 2000 = 20%) */
-    protocolFeeBps?: number;
+    protocolFeeBps: number;
+    maxDailyLoss: number;
+    maxTotalLoss: number;
+    payoutSchedule: PayoutSchedule[];
+    firstPayoutAt: number;
+    consecutiveProfitableMonths: number;
+    consecutiveProfit: number;
+    feeRefunded: boolean;
+    challengeFee: number;
 }
 export interface ProfitWithdrawalResult {
     txSignature: string;
@@ -84,6 +116,8 @@ export interface PerformanceSummary {
     protocolFeeRate: number;
     agentShareRate: number;
     totalWithdrawn: number;
+    nextPayoutAt: number | null;
+    payoutSchedule: PayoutSchedule[];
 }
 export interface LeaderboardEntry {
     rank: number;
@@ -106,10 +140,8 @@ export interface PlaceOrderRequest {
     agentId: string;
     entryId: string;
     side: OrderSide;
-    /** Size in base asset (e.g. 1 = 1 SOL) */
     size: number;
     orderType: OrderKind;
-    /** Required for limit orders — price in USD */
     price?: number;
 }
 export interface OrderResult {
@@ -139,11 +171,8 @@ export interface TradeHistoryEntry {
 }
 export interface VaultConfig {
     name: string;
-    /** Agent public key that will be delegated trading */
     delegateAuthority: string;
-    /** Profit share to agent in basis points (e.g. 8000 = 80%) */
     agentProfitShareBps: number;
-    /** Max allocation in USDC */
     maxAllocation: number;
 }
 export interface VaultInfo {

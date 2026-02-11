@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.seedChallenges = seedChallenges;
 exports.getAllChallenges = getAllChallenges;
 exports.getChallenge = getChallenge;
+exports.hasPassedPhase1 = hasPassedPhase1;
+exports.hasPassedBothPhases = hasPassedBothPhases;
 exports.enterChallenge = enterChallenge;
 exports.getEntry = getEntry;
 exports.getEntriesByAgent = getEntriesByAgent;
@@ -11,117 +13,97 @@ exports.updateEntryMetrics = updateEntryMetrics;
 exports.setEntryStatus = setEntryStatus;
 exports.getLeaderboard = getLeaderboard;
 /**
- * Challenge Service — manages trading challenges and agent entries
+ * Challenge Service — two-phase FTMO-style challenge system
  */
 const uuid_1 = require("uuid");
-/** In-memory store (swap for DB in production) */
 const challenges = new Map();
 const entries = new Map();
 let subAccountCounter = -1;
 function defaultMetrics(startingCapital) {
     return {
-        currentPnl: 0,
-        currentPnlPercent: 0,
-        maxDrawdown: 0,
-        maxDrawdownPercent: 0,
-        peakEquity: startingCapital,
-        currentEquity: startingCapital,
-        sharpeRatio: 0,
-        totalTrades: 0,
-        winRate: 0,
-        pnlHistory: [],
+        currentPnl: 0, currentPnlPercent: 0,
+        maxDrawdown: 0, maxDrawdownPercent: 0,
+        maxDailyLoss: 0, maxDailyLossPercent: 0,
+        peakEquity: startingCapital, currentEquity: startingCapital,
+        sharpeRatio: 0, totalTrades: 0, winRate: 0,
+        pnlHistory: [], tradingDays: [],
     };
 }
-/** Seed default challenges on startup */
 function seedChallenges() {
-    const defaults = [
-        {
-            name: 'Starter Challenge',
-            description: 'Prove your edge with $10k virtual capital on SOL-PERP. Target: 10% profit, max 5% drawdown.',
-            startingCapital: 10000,
-            durationHours: 24,
-            profitTarget: 10,
-            maxDrawdown: 5,
-            market: 'SOL-PERP',
-            status: 'active',
-        },
-        {
-            name: 'Pro Challenge',
-            description: 'Higher stakes: $50k virtual capital. Same rules — 10% profit, <5% drawdown in 48h.',
-            startingCapital: 50000,
-            durationHours: 48,
-            profitTarget: 10,
-            maxDrawdown: 5,
-            market: 'SOL-PERP',
-            status: 'active',
-        },
-        {
-            name: 'Elite Challenge',
-            description: '$100k virtual capital, 72h window. For battle-tested agents only.',
-            startingCapital: 100000,
-            durationHours: 72,
-            profitTarget: 10,
-            maxDrawdown: 5,
-            market: 'SOL-PERP',
-            status: 'active',
-        },
+    const tiers = [
+        { name: 'Starter', capital: 10000 },
+        { name: 'Pro', capital: 50000 },
+        { name: 'Elite', capital: 100000 },
     ];
-    for (const c of defaults) {
-        const id = (0, uuid_1.v4)();
-        challenges.set(id, { ...c, id, createdAt: Date.now() });
+    for (const tier of tiers) {
+        const p1Id = (0, uuid_1.v4)();
+        challenges.set(p1Id, {
+            id: p1Id,
+            name: `${tier.name} Challenge — Phase 1`,
+            description: `Phase 1: $${(tier.capital / 1000).toFixed(0)}k capital. 10% profit target, 5% max daily loss, 10% max total loss, min 4 trading days. 30-day window.`,
+            startingCapital: tier.capital, durationDays: 30, profitTarget: 10,
+            maxDailyLoss: 5, maxTotalLoss: 10, minTradingDays: 4, phase: 1,
+            market: 'SOL-PERP', status: 'active', createdAt: Date.now(),
+        });
+        const p2Id = (0, uuid_1.v4)();
+        challenges.set(p2Id, {
+            id: p2Id,
+            name: `${tier.name} Challenge — Phase 2 (Verification)`,
+            description: `Phase 2: $${(tier.capital / 1000).toFixed(0)}k capital. 5% profit target, same loss limits, min 4 trading days. 60-day window.`,
+            startingCapital: tier.capital, durationDays: 60, profitTarget: 5,
+            maxDailyLoss: 5, maxTotalLoss: 10, minTradingDays: 4, phase: 2,
+            market: 'SOL-PERP', status: 'active', createdAt: Date.now(),
+        });
     }
-    console.log(`🏁 Seeded ${defaults.length} challenges`);
+    console.log(`🏁 Seeded ${tiers.length * 2} challenges (${tiers.length} tiers × 2 phases)`);
 }
-function getAllChallenges() {
-    return Array.from(challenges.values());
+function getAllChallenges() { return Array.from(challenges.values()); }
+function getChallenge(id) { return challenges.get(id); }
+function hasPassedPhase1(agentId, startingCapital) {
+    return Array.from(entries.values()).find((e) => e.agentId === agentId && e.phase === 1 && e.status === 'passed' &&
+        getChallenge(e.challengeId)?.startingCapital === startingCapital);
 }
-function getChallenge(id) {
-    return challenges.get(id);
+function hasPassedBothPhases(agentId) {
+    const passed = Array.from(entries.values()).filter((e) => e.agentId === agentId && e.status === 'passed');
+    const phase1 = passed.find((e) => e.phase === 1);
+    const phase2 = passed.find((e) => e.phase === 2 && e.phase1EntryId === phase1?.id);
+    if (phase1 && phase2)
+        return { phase1, phase2 };
+    return null;
 }
-/**
- * Enter an agent into a challenge
- */
 function enterChallenge(challengeId, agentId, agentName, authority) {
     const challenge = challenges.get(challengeId);
     if (!challenge || challenge.status !== 'active')
         return null;
-    // Check if agent already entered this challenge
-    for (const e of entries.values()) {
-        if (e.challengeId === challengeId && e.agentId === agentId && e.status === 'active') {
-            return e; // Already entered
+    let phase1EntryId;
+    if (challenge.phase === 2) {
+        const p1 = hasPassedPhase1(agentId, challenge.startingCapital);
+        if (!p1) {
+            console.log(`❌ Agent ${agentName} must pass Phase 1 first`);
+            return null;
         }
+        phase1EntryId = p1.id;
+    }
+    for (const e of entries.values()) {
+        if (e.challengeId === challengeId && e.agentId === agentId && e.status === 'active')
+            return e;
     }
     const entryId = (0, uuid_1.v4)();
     const subAccountId = ++subAccountCounter;
     const now = Date.now();
     const entry = {
-        id: entryId,
-        challengeId,
-        agentId,
-        agentName,
-        subAccountId,
-        authority,
-        startedAt: now,
-        endsAt: now + challenge.durationHours * 3600000,
-        status: 'active',
-        metrics: defaultMetrics(challenge.startingCapital),
+        id: entryId, challengeId, agentId, agentName, subAccountId, authority,
+        startedAt: now, endsAt: now + challenge.durationDays * 24 * 3600000,
+        status: 'active', metrics: defaultMetrics(challenge.startingCapital),
+        phase: challenge.phase, phase1EntryId,
     };
     entries.set(entryId, entry);
-    console.log(`🤖 Agent ${agentName} (${agentId}) entered challenge ${challenge.name}`);
+    console.log(`🤖 Agent ${agentName} (${agentId}) entered ${challenge.name}`);
     return entry;
 }
-function getEntry(entryId) {
-    return entries.get(entryId);
-}
-function getEntriesByAgent(agentId) {
-    return Array.from(entries.values()).filter((e) => e.agentId === agentId);
-}
-function getEntriesForChallenge(challengeId) {
-    return Array.from(entries.values()).filter((e) => e.challengeId === challengeId);
-}
-/**
- * Update metrics for an entry (called by evaluation engine)
- */
+function getEntry(entryId) { return entries.get(entryId); }
+function getEntriesByAgent(agentId) { return Array.from(entries.values()).filter((e) => e.agentId === agentId); }
+function getEntriesForChallenge(challengeId) { return Array.from(entries.values()).filter((e) => e.challengeId === challengeId); }
 function updateEntryMetrics(entryId, metrics) {
     const entry = entries.get(entryId);
     if (!entry)
@@ -137,21 +119,13 @@ function setEntryStatus(entryId, status, proofTx) {
     if (proofTx)
         entry.proofTx = proofTx;
 }
-/**
- * Build leaderboard for a challenge
- */
 function getLeaderboard(challengeId) {
-    const challengeEntries = getEntriesForChallenge(challengeId);
-    return challengeEntries
+    return getEntriesForChallenge(challengeId)
         .sort((a, b) => b.metrics.currentPnlPercent - a.metrics.currentPnlPercent)
         .map((e, i) => ({
-        rank: i + 1,
-        agentId: e.agentId,
-        agentName: e.agentName,
-        pnlPercent: e.metrics.currentPnlPercent,
-        maxDrawdown: e.metrics.maxDrawdownPercent,
-        sharpeRatio: e.metrics.sharpeRatio,
-        status: e.status,
+        rank: i + 1, agentId: e.agentId, agentName: e.agentName,
+        pnlPercent: e.metrics.currentPnlPercent, maxDrawdown: e.metrics.maxDrawdownPercent,
+        sharpeRatio: e.metrics.sharpeRatio, status: e.status,
     }));
 }
 //# sourceMappingURL=challengeService.js.map
