@@ -3,107 +3,126 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.seedChallenges = seedChallenges;
 exports.getAllChallenges = getAllChallenges;
 exports.getChallenge = getChallenge;
-exports.hasPassedPhase1 = hasPassedPhase1;
-exports.hasPassedBothPhases = hasPassedBothPhases;
+exports.getPhase2Challenge = getPhase2Challenge;
 exports.enterChallenge = enterChallenge;
 exports.getEntry = getEntry;
 exports.getEntriesByAgent = getEntriesByAgent;
 exports.getEntriesForChallenge = getEntriesForChallenge;
 exports.updateEntryMetrics = updateEntryMetrics;
 exports.setEntryStatus = setEntryStatus;
+exports.hasPassedBothPhases = hasPassedBothPhases;
 exports.getLeaderboard = getLeaderboard;
 /**
- * Challenge Service — two-phase FTMO-style challenge system
+ * Challenge Service — 5 account tiers × 2 phases = 10 challenges
  */
 const uuid_1 = require("uuid");
+const types_1 = require("../types");
 const challenges = new Map();
 const entries = new Map();
 let subAccountCounter = -1;
+function todayStr() {
+    return new Date().toISOString().slice(0, 10);
+}
 function defaultMetrics(startingCapital) {
     return {
-        currentPnl: 0, currentPnlPercent: 0,
-        maxDrawdown: 0, maxDrawdownPercent: 0,
-        maxDailyLoss: 0, maxDailyLossPercent: 0,
-        peakEquity: startingCapital, currentEquity: startingCapital,
-        sharpeRatio: 0, totalTrades: 0, winRate: 0,
-        pnlHistory: [], tradingDays: [],
+        currentPnl: 0,
+        currentPnlPercent: 0,
+        maxDrawdown: 0,
+        maxDrawdownPercent: 0,
+        maxDailyLoss: 0,
+        maxDailyLossPercent: 0,
+        dailyLoss: 0,
+        dailyLossPercent: 0,
+        dailyLossDate: todayStr(),
+        peakEquity: startingCapital,
+        currentEquity: startingCapital,
+        sharpeRatio: 0,
+        totalTrades: 0,
+        winRate: 0,
+        pnlHistory: [],
+        tradingDays: [],
     };
 }
+const PHASE_CONFIG = {
+    1: { profitTarget: 8, durationDays: 30, label: 'Challenge' },
+    2: { profitTarget: 5, durationDays: 60, label: 'Verification' },
+};
 function seedChallenges() {
-    const tiers = [
-        { name: 'Starter', capital: 10000 },
-        { name: 'Pro', capital: 50000 },
-        { name: 'Elite', capital: 100000 },
-    ];
-    for (const tier of tiers) {
-        const p1Id = (0, uuid_1.v4)();
-        challenges.set(p1Id, {
-            id: p1Id,
-            name: `${tier.name} Challenge — Phase 1`,
-            description: `Phase 1: $${(tier.capital / 1000).toFixed(0)}k capital. 10% profit target, 5% max daily loss, 10% max total loss, min 4 trading days. 30-day window.`,
-            startingCapital: tier.capital, durationDays: 30, profitTarget: 10,
-            maxDailyLoss: 5, maxTotalLoss: 10, minTradingDays: 4, phase: 1,
-            market: 'SOL-PERP', status: 'active', createdAt: Date.now(),
-        });
-        const p2Id = (0, uuid_1.v4)();
-        challenges.set(p2Id, {
-            id: p2Id,
-            name: `${tier.name} Challenge — Phase 2 (Verification)`,
-            description: `Phase 2: $${(tier.capital / 1000).toFixed(0)}k capital. 5% profit target, same loss limits, min 4 trading days. 60-day window.`,
-            startingCapital: tier.capital, durationDays: 60, profitTarget: 5,
-            maxDailyLoss: 5, maxTotalLoss: 10, minTradingDays: 4, phase: 2,
-            market: 'SOL-PERP', status: 'active', createdAt: Date.now(),
-        });
+    let count = 0;
+    for (const tier of types_1.ACCOUNT_TIERS) {
+        for (const phase of [1, 2]) {
+            const cfg = PHASE_CONFIG[phase];
+            const capitalK = `$${tier.capital / 1000}k`;
+            const id = (0, uuid_1.v4)();
+            challenges.set(id, {
+                id,
+                name: `${capitalK} ${cfg.label}`,
+                description: `Phase ${phase} ${cfg.label}: ${capitalK} capital, ${cfg.profitTarget}% profit target, 5% max daily loss, 10% max total loss, min 10 trading days, ${cfg.durationDays}-day window. Fee: $${tier.fee} (refundable on pass).`,
+                startingCapital: tier.capital,
+                durationDays: cfg.durationDays,
+                profitTarget: cfg.profitTarget,
+                maxDailyLoss: 5,
+                maxTotalLoss: 10,
+                minTradingDays: 10,
+                phase,
+                challengeFee: tier.fee,
+                market: 'SOL-PERP',
+                status: 'active',
+                createdAt: Date.now(),
+            });
+            count++;
+        }
     }
-    console.log(`🏁 Seeded ${tiers.length * 2} challenges (${tiers.length} tiers × 2 phases)`);
+    console.log(`🏁 Seeded ${count} challenges (${types_1.ACCOUNT_TIERS.length} tiers × 2 phases)`);
 }
-function getAllChallenges() { return Array.from(challenges.values()); }
-function getChallenge(id) { return challenges.get(id); }
-function hasPassedPhase1(agentId, startingCapital) {
-    return Array.from(entries.values()).find((e) => e.agentId === agentId && e.phase === 1 && e.status === 'passed' &&
-        getChallenge(e.challengeId)?.startingCapital === startingCapital);
+function getAllChallenges() {
+    return Array.from(challenges.values());
 }
-function hasPassedBothPhases(agentId) {
-    const passed = Array.from(entries.values()).filter((e) => e.agentId === agentId && e.status === 'passed');
-    const phase1 = passed.find((e) => e.phase === 1);
-    const phase2 = passed.find((e) => e.phase === 2 && e.phase1EntryId === phase1?.id);
-    if (phase1 && phase2)
-        return { phase1, phase2 };
-    return null;
+function getChallenge(id) {
+    return challenges.get(id);
 }
-function enterChallenge(challengeId, agentId, agentName, authority) {
+function getPhase2Challenge(phase1Challenge) {
+    return Array.from(challenges.values()).find((c) => c.phase === 2 && c.startingCapital === phase1Challenge.startingCapital && c.status === 'active');
+}
+function enterChallenge(challengeId, agentId, agentName, authority, phase1EntryId) {
     const challenge = challenges.get(challengeId);
     if (!challenge || challenge.status !== 'active')
         return null;
-    let phase1EntryId;
-    if (challenge.phase === 2) {
-        const p1 = hasPassedPhase1(agentId, challenge.startingCapital);
-        if (!p1) {
-            console.log(`❌ Agent ${agentName} must pass Phase 1 first`);
-            return null;
-        }
-        phase1EntryId = p1.id;
-    }
     for (const e of entries.values()) {
-        if (e.challengeId === challengeId && e.agentId === agentId && e.status === 'active')
+        if (e.challengeId === challengeId && e.agentId === agentId && e.status === 'active') {
             return e;
+        }
     }
     const entryId = (0, uuid_1.v4)();
     const subAccountId = ++subAccountCounter;
     const now = Date.now();
     const entry = {
-        id: entryId, challengeId, agentId, agentName, subAccountId, authority,
-        startedAt: now, endsAt: now + challenge.durationDays * 24 * 3600000,
-        status: 'active', metrics: defaultMetrics(challenge.startingCapital),
-        phase: challenge.phase, phase1EntryId,
+        id: entryId,
+        challengeId,
+        agentId,
+        agentName,
+        subAccountId,
+        authority,
+        startedAt: now,
+        endsAt: now + challenge.durationDays * 24 * 3600000,
+        status: 'active',
+        metrics: defaultMetrics(challenge.startingCapital),
+        phase: challenge.phase,
+        phase1EntryId,
     };
     entries.set(entryId, entry);
-    console.log(`🤖 Agent ${agentName} (${agentId}) entered ${challenge.name}`);
+    console.log(`🤖 Agent ${agentName} (${agentId}) entered Phase ${challenge.phase} ${challenge.name}`);
     return entry;
 }
-function getEntry(entryId) { return entries.get(entryId); }
-function getEntriesByAgent(agentId) { return Array.from(entries.values()).filter((e) => e.agentId === agentId); }
-function getEntriesForChallenge(challengeId) { return Array.from(entries.values()).filter((e) => e.challengeId === challengeId); }
+function getEntry(entryId) {
+    return entries.get(entryId);
+}
+function getEntriesByAgent(agentId) {
+    return Array.from(entries.values()).filter((e) => e.agentId === agentId);
+}
+function getEntriesForChallenge(challengeId) {
+    return Array.from(entries.values()).filter((e) => e.challengeId === challengeId);
+}
 function updateEntryMetrics(entryId, metrics) {
     const entry = entries.get(entryId);
     if (!entry)
@@ -119,13 +138,30 @@ function setEntryStatus(entryId, status, proofTx) {
     if (proofTx)
         entry.proofTx = proofTx;
 }
+/**
+ * Check if an agent has passed both phases for any tier
+ */
+function hasPassedBothPhases(agentId) {
+    const agentEntries = getEntriesByAgent(agentId);
+    const phase2Passed = agentEntries.find((e) => e.phase === 2 && e.status === 'passed');
+    if (!phase2Passed)
+        return null;
+    const phase1Passed = agentEntries.find((e) => e.phase === 1 && e.status === 'passed' && e.id === phase2Passed.phase1EntryId);
+    if (!phase1Passed)
+        return null;
+    return { phase1: phase1Passed, phase2: phase2Passed };
+}
 function getLeaderboard(challengeId) {
     return getEntriesForChallenge(challengeId)
         .sort((a, b) => b.metrics.currentPnlPercent - a.metrics.currentPnlPercent)
         .map((e, i) => ({
-        rank: i + 1, agentId: e.agentId, agentName: e.agentName,
-        pnlPercent: e.metrics.currentPnlPercent, maxDrawdown: e.metrics.maxDrawdownPercent,
-        sharpeRatio: e.metrics.sharpeRatio, status: e.status,
+        rank: i + 1,
+        agentId: e.agentId,
+        agentName: e.agentName,
+        pnlPercent: e.metrics.currentPnlPercent,
+        maxDrawdown: e.metrics.maxDrawdownPercent,
+        sharpeRatio: e.metrics.sharpeRatio,
+        status: e.status,
     }));
 }
 //# sourceMappingURL=challengeService.js.map

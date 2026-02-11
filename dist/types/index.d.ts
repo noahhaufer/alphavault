@@ -1,21 +1,8 @@
-/**
- * AlphaVault Type Definitions
- *
- * Two-phase challenge system (prop firm style):
- *   Phase 1 (Challenge): 8% profit target, 5% max daily loss, 10% max total loss, min 10 trading days, 30-day window
- *   Phase 2 (Verification): 5% profit target, same loss limits, min 10 trading days, 60-day window
- *   Agent must pass BOTH phases to get funded.
- *
- * Funded accounts: no profit target, same loss limits, 90/10 profit split (agent/protocol).
- */
 export type ChallengePhase = 1 | 2;
-export interface AccountTier {
-    /** Starting capital in USDC */
+export declare const ACCOUNT_TIERS: {
     capital: number;
-    /** Challenge fee in USDC (refundable on pass) */
     fee: number;
-}
-export declare const ACCOUNT_TIERS: AccountTier[];
+}[];
 export interface Challenge {
     id: string;
     name: string;
@@ -27,8 +14,8 @@ export interface Challenge {
     maxTotalLoss: number;
     minTradingDays: number;
     phase: ChallengePhase;
-    challengeFee: number;
     market: string;
+    challengeFee: number;
     status: 'active' | 'upcoming' | 'completed';
     createdAt: number;
 }
@@ -65,15 +52,6 @@ export interface PerformanceMetrics {
     pnlHistory: number[];
     tradingDays: string[];
 }
-export interface PayoutSchedule {
-    id: string;
-    fundedAccountId: string;
-    availableAt: number;
-    amount: number;
-    status: 'pending' | 'paid' | 'skipped';
-    paidAt?: number;
-    txSignature?: string;
-}
 export interface FundedAccount {
     id: string;
     agentId: string;
@@ -89,15 +67,9 @@ export interface FundedAccount {
     vaultPubkey?: string;
     currentEquity?: number;
     totalWithdrawn?: number;
-    protocolFeeBps: number;
+    protocolFeeBps?: number;
     maxDailyLoss: number;
     maxTotalLoss: number;
-    payoutSchedule: PayoutSchedule[];
-    firstPayoutAt: number;
-    consecutiveProfitableMonths: number;
-    consecutiveProfit: number;
-    feeRefunded: boolean;
-    challengeFee: number;
 }
 export interface ProfitWithdrawalResult {
     txSignature: string;
@@ -116,8 +88,6 @@ export interface PerformanceSummary {
     protocolFeeRate: number;
     agentShareRate: number;
     totalWithdrawn: number;
-    nextPayoutAt: number | null;
-    payoutSchedule: PayoutSchedule[];
 }
 export interface LeaderboardEntry {
     rank: number;

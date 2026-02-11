@@ -43,13 +43,18 @@ async function start() {
     (0, challengeService_1.seedChallenges)();
     // Initialize Drift SDK
     try {
-        await (0, driftService_1.initializeDrift)();
+        if (!process.env.SKIP_DRIFT) {
+            await (0, driftService_1.initializeDrift)();
+        }
+        else {
+            console.log('⚠️  SKIP_DRIFT=1 — running without Drift SDK (demo mode)');
+        }
         console.log('✅ Drift SDK connected to devnet');
     }
     catch (err) {
         console.warn(`⚠️  Drift SDK init failed (trading will use simulation fallback): ${err.message}`);
     }
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
         console.log(`
 ╔═══════════════════════════════════════════════╗
 ║          🏦 AlphaVault v1.0.0                ║

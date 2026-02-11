@@ -45,7 +45,11 @@ async function start(): Promise<void> {
 
   // Initialize Drift SDK
   try {
-    await initializeDrift();
+    if (!process.env.SKIP_DRIFT) {
+      await initializeDrift();
+    } else {
+      console.log('⚠️  SKIP_DRIFT=1 — running without Drift SDK (demo mode)');
+    }
     console.log('✅ Drift SDK connected to devnet');
   } catch (err: any) {
     console.warn(
@@ -53,7 +57,7 @@ async function start(): Promise<void> {
     );
   }
 
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔═══════════════════════════════════════════════╗
 ║          🏦 AlphaVault v1.0.0                ║
