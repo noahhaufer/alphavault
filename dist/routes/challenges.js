@@ -5,6 +5,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
  */
 const express_1 = require("express");
 const web3_js_1 = require("@solana/web3.js");
+const driftService_1 = require("../services/driftService");
 const challengeService_1 = require("../services/challengeService");
 const router = (0, express_1.Router)();
 router.get('/', (_req, res) => {
@@ -18,7 +19,7 @@ router.get('/:id', (req, res) => {
     }
     res.json({ success: true, data: challenge, timestamp: Date.now() });
 });
-router.post('/:id/enter', (req, res) => {
+router.post('/:id/enter', async (req, res) => {
     const { agentId, agentName } = req.body;
     if (!agentId || !agentName) {
         res.status(400).json({ success: false, error: 'agentId and agentName are required', timestamp: Date.now() });
@@ -34,6 +35,13 @@ router.post('/:id/enter', (req, res) => {
     if (!entry) {
         res.status(400).json({ success: false, error: 'Cannot enter this challenge (Phase 2 requires passing Phase 1 first)', timestamp: Date.now() });
         return;
+    }
+    // Create the Drift subaccount on-chain so the agent can actually trade
+    try {
+        await (0, driftService_1.createSubAccount)(entry.subAccountId, `${agentName}-${entry.id.slice(0, 8)}`);
+    }
+    catch (err) {
+        console.warn(`⚠️ Subaccount creation failed (will use existing if available): ${err.message}`);
     }
     res.status(201).json({
         success: true,

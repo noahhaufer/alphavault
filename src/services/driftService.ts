@@ -450,6 +450,100 @@ export function getTradeCount(subAccountId: number): number {
 }
 
 /**
+ * Get account equity for a subaccount (collateral + unrealized PnL)
+ */
+export function getAccountEquity(subAccountId: number): number {
+  const client = getDriftClient();
+  const user = client.getUser(subAccountId);
+  
+  // Get collateral value
+  const collateral = convertToNumber(
+    user.getTotalCollateral(),
+    QUOTE_PRECISION
+  );
+  
+  // Get unrealized PnL across all positions
+  const unrealizedPnl = convertToNumber(
+    user.getUnrealizedPNL(true, undefined, undefined),
+    QUOTE_PRECISION
+  );
+  
+  return collateral + unrealizedPnl;
+}
+
+/**
+ * Get current oracle prices for all perp markets
+ */
+export function getMarketPrices(): Array<{
+  marketIndex: number;
+  marketName: string;
+  price: number;
+  confidence?: number;
+  slot?: number;
+}> {
+  const client = getDriftClient();
+  const markets = client.getPerpMarketAccounts();
+  
+  const prices = [];
+  
+  // Market name mapping
+  const marketNames: Record<number, string> = {
+    0: 'SOL-PERP',
+    1: 'BTC-PERP',
+    2: 'ETH-PERP',
+    3: 'APT-PERP',
+    4: 'BONK-PERP',
+    5: 'MATIC-PERP',
+    6: 'ARB-PERP',
+    7: 'DOGE-PERP',
+    8: 'BNB-PERP',
+    9: 'SUI-PERP',
+    10: 'PEPE-PERP',
+    11: 'OP-PERP',
+    12: 'RENDER-PERP',
+    13: 'XRP-PERP',
+    14: 'HNT-PERP',
+    15: 'INJ-PERP',
+    16: 'LINK-PERP',
+    17: 'RLB-PERP',
+    18: 'PYTH-PERP',
+    19: 'TIA-PERP',
+    20: 'JTO-PERP',
+    21: 'SEI-PERP',
+    22: 'WIF-PERP',
+    23: 'JUP-PERP',
+    24: 'DYM-PERP',
+    25: 'TAO-PERP',
+    26: 'W-PERP',
+    27: 'KMNO-PERP',
+    28: 'TNSR-PERP',
+  };
+  
+  for (const market of markets) {
+    try {
+      const oracleData = client.getOracleDataForPerpMarket(market.marketIndex);
+      const price = convertToNumber(oracleData.price, PRICE_PRECISION);
+      const confidence = oracleData.confidence 
+        ? convertToNumber(oracleData.confidence, PRICE_PRECISION)
+        : undefined;
+      
+      prices.push({
+        marketIndex: market.marketIndex,
+        marketName: marketNames[market.marketIndex] || `MARKET-${market.marketIndex}`,
+        price,
+        confidence,
+        slot: oracleData.slot.toNumber(),
+      });
+    } catch (err) {
+      // Skip markets with no oracle data
+      continue;
+    }
+  }
+  
+  return prices;
+}
+
+/**
  * Shutdown the drift client gracefully
  */
 export async function shutdownDrift(): Promise<void> {

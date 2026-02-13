@@ -20,6 +20,9 @@ const types_1 = require("../types");
 const challenges = new Map();
 const entries = new Map();
 let subAccountCounter = -1;
+// On devnet, all agents share subaccount 0 (funded with collateral).
+// In production, each agent gets a unique subaccount funded by the vault.
+const DEVNET_SHARED_SUBACCOUNT = process.env.DRIFT_NETWORK !== 'mainnet-beta';
 function todayStr() {
     return new Date().toISOString().slice(0, 10);
 }
@@ -94,7 +97,7 @@ function enterChallenge(challengeId, agentId, agentName, authority, phase1EntryI
         }
     }
     const entryId = (0, uuid_1.v4)();
-    const subAccountId = ++subAccountCounter;
+    const subAccountId = DEVNET_SHARED_SUBACCOUNT ? 0 : ++subAccountCounter;
     const now = Date.now();
     const entry = {
         id: entryId,

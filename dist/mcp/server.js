@@ -41,11 +41,15 @@ server.tool('place_order', 'Place a perpetual order on Drift via AlphaVault', {
     agentId: zod_1.z.string().describe('Agent identifier'),
     entryId: zod_1.z.string().describe('Challenge entry ID'),
     side: zod_1.z.enum(['long', 'short']).describe('Trade direction'),
-    size: zod_1.z.number().describe('Position size'),
+    size: zod_1.z.number().describe('Position size in base asset units'),
     orderType: zod_1.z.enum(['market', 'limit']).describe('Order type'),
     price: zod_1.z.number().optional().describe('Limit price (required for limit orders)'),
-}, async ({ agentId, entryId, side, size, orderType, price }) => {
-    const result = await api('POST', '/trading/order', { agentId, entryId, side, size, orderType, price });
+    market: zod_1.z.string().optional().describe('Perp market name (e.g. SOL-PERP, BTC-PERP, ETH-PERP) or index. Defaults to SOL-PERP'),
+    leverage: zod_1.z.number().optional().describe('Leverage multiplier (1-20). Multiplies the size accordingly'),
+    stopLoss: zod_1.z.number().optional().describe('Stop-loss trigger price. Places a trigger market order to close position'),
+    takeProfit: zod_1.z.number().optional().describe('Take-profit trigger price. Places a trigger limit order to close position'),
+}, async ({ agentId, entryId, side, size, orderType, price, market, leverage, stopLoss, takeProfit }) => {
+    const result = await api('POST', '/trading/order', { agentId, entryId, side, size, orderType, price, market, leverage, stopLoss, takeProfit });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 // 4. get_positions
@@ -83,6 +87,42 @@ server.tool('apply_for_funding', 'Apply for a funded account after passing chall
     agentName: zod_1.z.string().describe('Display name for the agent'),
 }, async ({ agentId, agentName }) => {
     const result = await api('POST', '/funded/apply', { agentId, agentName });
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+// 9. get_market_prices
+server.tool('get_market_prices', 'Get current oracle prices for all supported perp markets (SOL, BTC, ETH, and 26 others)', {}, async () => {
+    const result = await api('GET', '/trading/market-prices');
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+// 10. get_equity
+server.tool('get_equity', 'Get real-time account equity (collateral + unrealized PnL) and profit/loss for an entry', {
+    entryId: zod_1.z.string().describe('Challenge entry ID'),
+}, async ({ entryId }) => {
+    const result = await api('GET', `/trading/equity/${entryId}`);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+// 11. set_risk_limits
+server.tool('set_risk_limits', 'Configure risk management limits for an entry (max position size, daily loss, leverage, allowed markets)', {
+    entryId: zod_1.z.string().describe('Challenge entry ID'),
+    maxPositionSize: zod_1.z.number().optional().describe('Maximum position size in base units'),
+    maxDailyLoss: zod_1.z.number().optional().describe('Maximum daily loss in USD'),
+    maxLeverage: zod_1.z.number().optional().describe('Maximum leverage multiplier (1-20)'),
+    allowedMarkets: zod_1.z.array(zod_1.z.number()).optional().describe('Array of allowed market indexes'),
+}, async ({ entryId, maxPositionSize, maxDailyLoss, maxLeverage, allowedMarkets }) => {
+    const result = await api('POST', '/trading/risk-limits', {
+        entryId,
+        maxPositionSize,
+        maxDailyLoss,
+        maxLeverage,
+        allowedMarkets
+    });
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+});
+// 12. get_risk_limits
+server.tool('get_risk_limits', 'Get configured risk limits for an entry', {
+    entryId: zod_1.z.string().describe('Challenge entry ID'),
+}, async ({ entryId }) => {
+    const result = await api('GET', `/trading/risk-limits/${entryId}`);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 });
 async function main() {

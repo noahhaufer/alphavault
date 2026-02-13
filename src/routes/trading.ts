@@ -7,8 +7,10 @@ import {
   getPositions,
   getOrderHistory,
   closeAllPositions,
+  getAccountEquity,
+  getMarketPrices,
 } from '../services/driftService';
-import { getEntry } from '../services/challengeService';
+import { getEntry, getChallenge } from '../services/challengeService';
 import { ApiResponse, PlaceOrderRequest, resolveMarketIndex } from '../types';
 
 const router = Router();
@@ -254,6 +256,170 @@ router.post('/close/:entryId', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: `Failed to close positions: ${err.message}`,
+      timestamp: Date.now(),
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /trading/market-prices — get current oracle prices for all markets
+ */
+router.get('/market-prices', (req: Request, res: Response) => {
+  try {
+    const prices = getMarketPrices();
+    res.json({
+      success: true,
+      data: { 
+        markets: prices,
+        count: prices.length,
+        timestamp: Date.now(),
+      },
+      timestamp: Date.now(),
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: `Failed to fetch market prices: ${err.message}`,
+      timestamp: Date.now(),
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /trading/equity/:entryId — get real-time account equity
+ */
+router.get('/equity/:entryId', (req: Request, res: Response) => {
+  try {
+    const entry = getEntry(req.params.entryId);
+    if (!entry) {
+      res.status(404).json({
+        success: false,
+        error: 'Entry not found',
+        timestamp: Date.now(),
+      } as ApiResponse);
+      return;
+    }
+
+    const challenge = getChallenge(entry.challengeId);
+    if (!challenge) {
+      res.status(404).json({
+        success: false,
+        error: 'Challenge not found',
+        timestamp: Date.now(),
+      } as ApiResponse);
+      return;
+    }
+
+    const equity = getAccountEquity(entry.subAccountId);
+    const startingBalance = challenge.startingCapital;
+    const profitLoss = equity - startingBalance;
+    const profitLossPct = (profitLoss / startingBalance) * 100;
+
+    res.json({
+      success: true,
+      data: {
+        entryId: entry.id,
+        equity,
+        startingBalance,
+        profitLoss,
+        profitLossPct,
+        timestamp: Date.now(),
+      },
+      timestamp: Date.now(),
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: `Failed to calculate equity: ${err.message}`,
+      timestamp: Date.now(),
+    } as ApiResponse);
+  }
+});
+
+// Simple in-memory risk limits store
+interface RiskLimits {
+  maxPositionSize?: number;
+  maxDailyLoss?: number;
+  maxLeverage?: number;
+  allowedMarkets?: number[];
+}
+
+const riskLimitsStore = new Map<string, RiskLimits>();
+
+/**
+ * POST /trading/risk-limits — set risk management limits for an entry
+ */
+router.post('/risk-limits', (req: Request, res: Response) => {
+  try {
+    const { entryId, maxPositionSize, maxDailyLoss, maxLeverage, allowedMarkets } = req.body;
+
+    if (!entryId) {
+      res.status(400).json({
+        success: false,
+        error: 'entryId is required',
+        timestamp: Date.now(),
+      } as ApiResponse);
+      return;
+    }
+
+    const entry = getEntry(entryId);
+    if (!entry) {
+      res.status(404).json({
+        success: false,
+        error: 'Entry not found',
+        timestamp: Date.now(),
+      } as ApiResponse);
+      return;
+    }
+
+    const limits: RiskLimits = {};
+    if (maxPositionSize != null) limits.maxPositionSize = maxPositionSize;
+    if (maxDailyLoss != null) limits.maxDailyLoss = maxDailyLoss;
+    if (maxLeverage != null) limits.maxLeverage = maxLeverage;
+    if (allowedMarkets != null) limits.allowedMarkets = allowedMarkets;
+
+    riskLimitsStore.set(entryId, limits);
+
+    res.json({
+      success: true,
+      data: {
+        entryId,
+        limits,
+        note: 'Risk limits stored (in-memory only for hackathon demo)',
+        timestamp: Date.now(),
+      },
+      timestamp: Date.now(),
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: `Failed to set risk limits: ${err.message}`,
+      timestamp: Date.now(),
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /trading/risk-limits/:entryId — get risk limits for an entry
+ */
+router.get('/risk-limits/:entryId', (req: Request, res: Response) => {
+  try {
+    const entryId = req.params.entryId;
+    const limits = riskLimitsStore.get(entryId) || {};
+
+    res.json({
+      success: true,
+      data: {
+        entryId,
+        limits,
+        timestamp: Date.now(),
+      },
+      timestamp: Date.now(),
+    } as ApiResponse);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: `Failed to get risk limits: ${err.message}`,
       timestamp: Date.now(),
     } as ApiResponse);
   }

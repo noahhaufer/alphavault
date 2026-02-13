@@ -13,6 +13,10 @@ export declare function initializeDrift(): Promise<DriftClient>;
  */
 export declare function getDriftClient(): DriftClient;
 /**
+ * Deposit SOL as collateral into Drift subaccount
+ */
+export declare function depositCollateral(amountSol: number, subAccountId?: number): Promise<string>;
+/**
  * Initialize a Drift user subaccount for a challenge entry
  */
 export declare function createSubAccount(subAccountId: number, name: string): Promise<{
@@ -25,7 +29,8 @@ export declare function createSubAccount(subAccountId: number, name: string): Pr
  */
 export declare function delegateSubAccount(subAccountId: number, delegatePublicKey: PublicKey): Promise<string>;
 /**
- * Place a perp order on behalf of a subaccount
+ * Place a perp order on behalf of a subaccount.
+ * Supports market, limit, stop-loss (trigger market), and take-profit (trigger limit).
  */
 export declare function placePerpOrder(params: {
     subAccountId: number;
@@ -34,6 +39,9 @@ export declare function placePerpOrder(params: {
     size: number;
     orderType: OrderKind;
     price?: number;
+    leverage?: number;
+    stopLoss?: number;
+    takeProfit?: number;
 }): Promise<string>;
 /**
  * Cancel all orders for a subaccount
@@ -63,6 +71,20 @@ export declare function getAccountMetrics(subAccountId: number): {
  * Get trade count from filled orders in the user account
  */
 export declare function getTradeCount(subAccountId: number): number;
+/**
+ * Get account equity for a subaccount (collateral + unrealized PnL)
+ */
+export declare function getAccountEquity(subAccountId: number): number;
+/**
+ * Get current oracle prices for all perp markets
+ */
+export declare function getMarketPrices(): Array<{
+    marketIndex: number;
+    marketName: string;
+    price: number;
+    confidence?: number;
+    slot?: number;
+}>;
 /**
  * Shutdown the drift client gracefully
  */

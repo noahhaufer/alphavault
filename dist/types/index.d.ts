@@ -106,6 +106,9 @@ export interface ApiResponse<T = any> {
 }
 export type OrderSide = 'long' | 'short';
 export type OrderKind = 'market' | 'limit';
+/** Supported Drift perp markets (devnet) */
+export declare const PERP_MARKET_MAP: Record<string, number>;
+export declare function resolveMarketIndex(market?: string): number;
 export interface PlaceOrderRequest {
     agentId: string;
     entryId: string;
@@ -113,6 +116,10 @@ export interface PlaceOrderRequest {
     size: number;
     orderType: OrderKind;
     price?: number;
+    market?: string;
+    leverage?: number;
+    stopLoss?: number;
+    takeProfit?: number;
 }
 export interface OrderResult {
     txSignature: string;

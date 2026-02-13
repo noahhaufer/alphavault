@@ -138,6 +138,66 @@ server.tool(
   }
 );
 
+// 9. get_market_prices
+server.tool(
+  'get_market_prices',
+  'Get current oracle prices for all supported perp markets (SOL, BTC, ETH, and 26 others)',
+  {},
+  async () => {
+    const result = await api('GET', '/trading/market-prices');
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 10. get_equity
+server.tool(
+  'get_equity',
+  'Get real-time account equity (collateral + unrealized PnL) and profit/loss for an entry',
+  {
+    entryId: z.string().describe('Challenge entry ID'),
+  },
+  async ({ entryId }) => {
+    const result = await api('GET', `/trading/equity/${entryId}`);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 11. set_risk_limits
+server.tool(
+  'set_risk_limits',
+  'Configure risk management limits for an entry (max position size, daily loss, leverage, allowed markets)',
+  {
+    entryId: z.string().describe('Challenge entry ID'),
+    maxPositionSize: z.number().optional().describe('Maximum position size in base units'),
+    maxDailyLoss: z.number().optional().describe('Maximum daily loss in USD'),
+    maxLeverage: z.number().optional().describe('Maximum leverage multiplier (1-20)'),
+    allowedMarkets: z.array(z.number()).optional().describe('Array of allowed market indexes'),
+  },
+  async ({ entryId, maxPositionSize, maxDailyLoss, maxLeverage, allowedMarkets }) => {
+    const result = await api('POST', '/trading/risk-limits', { 
+      entryId, 
+      maxPositionSize, 
+      maxDailyLoss, 
+      maxLeverage, 
+      allowedMarkets 
+    });
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// 12. get_risk_limits
+server.tool(
+  'get_risk_limits',
+  'Get configured risk limits for an entry',
+  {
+    entryId: z.string().describe('Challenge entry ID'),
+  },
+  async ({ entryId }) => {
+    const result = await api('GET', `/trading/risk-limits/${entryId}`);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.initializeDrift = initializeDrift;
 exports.getDriftClient = getDriftClient;
+exports.depositCollateral = depositCollateral;
 exports.createSubAccount = createSubAccount;
 exports.delegateSubAccount = delegateSubAccount;
 exports.placePerpOrder = placePerpOrder;
@@ -11,6 +12,8 @@ exports.getPositions = getPositions;
 exports.getOrderHistory = getOrderHistory;
 exports.getAccountMetrics = getAccountMetrics;
 exports.getTradeCount = getTradeCount;
+exports.getAccountEquity = getAccountEquity;
+exports.getMarketPrices = getMarketPrices;
 exports.shutdownDrift = shutdownDrift;
 /**
  * Drift Protocol SDK Service — real devnet trading integration
@@ -60,6 +63,18 @@ function getDriftClient() {
     return driftClient;
 }
 /**
+ * Deposit SOL as collateral into Drift subaccount
+ */
+async function depositCollateral(amountSol, subAccountId = 0) {
+    const client = getDriftClient();
+    const keypair = (0, solana_1.getServiceKeypair)();
+    // Market index 1 = SOL spot, use BASE_PRECISION (1e9) for SOL amounts
+    const amount = new sdk_1.BN(amountSol * 1e9);
+    const txSig = await client.deposit(amount, 1, keypair.publicKey, subAccountId);
+    console.log(`💰 Deposited ${amountSol} SOL to subaccount ${subAccountId} — tx: ${txSig}`);
+    return txSig;
+}
+/**
  * Initialize a Drift user subaccount for a challenge entry
  */
 async function createSubAccount(subAccountId, name) {
@@ -91,14 +106,19 @@ async function delegateSubAccount(subAccountId, delegatePublicKey) {
     return txSig;
 }
 /**
- * Place a perp order on behalf of a subaccount
+ * Place a perp order on behalf of a subaccount.
+ * Supports market, limit, stop-loss (trigger market), and take-profit (trigger limit).
  */
 async function placePerpOrder(params) {
     const client = getDriftClient();
     // Switch to the correct subaccount
     await client.switchActiveUser(params.subAccountId);
     const direction = params.side === 'long' ? sdk_1.PositionDirection.LONG : sdk_1.PositionDirection.SHORT;
-    const baseAssetAmount = client.convertToPerpPrecision(params.size);
+    // Apply leverage to size if specified
+    const effectiveSize = params.leverage && params.leverage > 1
+        ? params.size * params.leverage
+        : params.size;
+    const baseAssetAmount = client.convertToPerpPrecision(effectiveSize);
     const orderParams = {
         orderType: params.orderType === 'market' ? sdk_1.OrderType.MARKET : sdk_1.OrderType.LIMIT,
         marketType: sdk_1.MarketType.PERP,
@@ -110,7 +130,67 @@ async function placePerpOrder(params) {
         orderParams.price = new sdk_1.BN(params.price).mul(sdk_1.PRICE_PRECISION);
     }
     const txSig = await client.placePerpOrder(orderParams, undefined, params.subAccountId);
-    console.log(`📈 Order placed: ${params.side} ${params.size} SOL-PERP (${params.orderType}) — tx: ${txSig}`);
+    console.log(`📈 Order placed: ${params.side} ${effectiveSize} market#${params.marketIndex} (${params.orderType}) — tx: ${txSig}`);
+    // Place stop-loss trigger order if specified
+    if (params.stopLoss != null && params.stopLoss > 0) {
+        await placeTriggerOrder({
+            client,
+            subAccountId: params.subAccountId,
+            marketIndex: params.marketIndex,
+            side: params.side,
+            size: effectiveSize,
+            triggerPrice: params.stopLoss,
+            isStopLoss: true,
+        });
+    }
+    // Place take-profit trigger order if specified
+    if (params.takeProfit != null && params.takeProfit > 0) {
+        await placeTriggerOrder({
+            client,
+            subAccountId: params.subAccountId,
+            marketIndex: params.marketIndex,
+            side: params.side,
+            size: effectiveSize,
+            triggerPrice: params.takeProfit,
+            isStopLoss: false,
+        });
+    }
+    return txSig;
+}
+/**
+ * Place a trigger order (stop-loss or take-profit) to close a position.
+ */
+async function placeTriggerOrder(params) {
+    // Closing direction is opposite of the position
+    const closeDirection = params.side === 'long' ? sdk_1.PositionDirection.SHORT : sdk_1.PositionDirection.LONG;
+    const baseAssetAmount = params.client.convertToPerpPrecision(params.size);
+    const triggerPriceBN = new sdk_1.BN(params.triggerPrice).mul(sdk_1.PRICE_PRECISION);
+    // Stop-loss: trigger when price moves against position
+    // Take-profit: trigger when price moves in favor
+    // For longs: SL triggers below (triggerBelow), TP triggers above (triggerAbove)
+    // For shorts: SL triggers above (triggerAbove), TP triggers below (triggerBelow)
+    const isLong = params.side === 'long';
+    const triggerBelow = params.isStopLoss ? isLong : !isLong;
+    const orderType = params.isStopLoss
+        ? sdk_1.OrderType.TRIGGER_MARKET
+        : sdk_1.OrderType.TRIGGER_LIMIT;
+    const orderParams = {
+        orderType,
+        marketType: sdk_1.MarketType.PERP,
+        marketIndex: params.marketIndex,
+        direction: closeDirection,
+        baseAssetAmount,
+        triggerPrice: triggerPriceBN,
+        triggerCondition: triggerBelow ? { below: {} } : { above: {} },
+        reduceOnly: true,
+    };
+    // For trigger limit, set the price to the trigger price
+    if (orderType === sdk_1.OrderType.TRIGGER_LIMIT) {
+        orderParams.price = triggerPriceBN;
+    }
+    const txSig = await params.client.placePerpOrder(orderParams, undefined, params.subAccountId);
+    const label = params.isStopLoss ? 'Stop-loss' : 'Take-profit';
+    console.log(`🛡️ ${label} placed: market#${params.marketIndex} @ ${params.triggerPrice} — tx: ${txSig}`);
     return txSig;
 }
 /**
@@ -214,6 +294,79 @@ function getTradeCount(subAccountId) {
     if (!userAccount)
         return 0;
     return userAccount.totalDeposits ? userAccount.orders.filter((o) => o.orderId !== 0 && !o.baseAssetAmountFilled.isZero()).length : 0;
+}
+/**
+ * Get account equity for a subaccount (collateral + unrealized PnL)
+ */
+function getAccountEquity(subAccountId) {
+    const client = getDriftClient();
+    const user = client.getUser(subAccountId);
+    // Get collateral value
+    const collateral = (0, sdk_1.convertToNumber)(user.getTotalCollateral(), sdk_1.QUOTE_PRECISION);
+    // Get unrealized PnL across all positions
+    const unrealizedPnl = (0, sdk_1.convertToNumber)(user.getUnrealizedPNL(true, undefined, undefined), sdk_1.QUOTE_PRECISION);
+    return collateral + unrealizedPnl;
+}
+/**
+ * Get current oracle prices for all perp markets
+ */
+function getMarketPrices() {
+    const client = getDriftClient();
+    const markets = client.getPerpMarketAccounts();
+    const prices = [];
+    // Market name mapping
+    const marketNames = {
+        0: 'SOL-PERP',
+        1: 'BTC-PERP',
+        2: 'ETH-PERP',
+        3: 'APT-PERP',
+        4: 'BONK-PERP',
+        5: 'MATIC-PERP',
+        6: 'ARB-PERP',
+        7: 'DOGE-PERP',
+        8: 'BNB-PERP',
+        9: 'SUI-PERP',
+        10: 'PEPE-PERP',
+        11: 'OP-PERP',
+        12: 'RENDER-PERP',
+        13: 'XRP-PERP',
+        14: 'HNT-PERP',
+        15: 'INJ-PERP',
+        16: 'LINK-PERP',
+        17: 'RLB-PERP',
+        18: 'PYTH-PERP',
+        19: 'TIA-PERP',
+        20: 'JTO-PERP',
+        21: 'SEI-PERP',
+        22: 'WIF-PERP',
+        23: 'JUP-PERP',
+        24: 'DYM-PERP',
+        25: 'TAO-PERP',
+        26: 'W-PERP',
+        27: 'KMNO-PERP',
+        28: 'TNSR-PERP',
+    };
+    for (const market of markets) {
+        try {
+            const oracleData = client.getOracleDataForPerpMarket(market.marketIndex);
+            const price = (0, sdk_1.convertToNumber)(oracleData.price, sdk_1.PRICE_PRECISION);
+            const confidence = oracleData.confidence
+                ? (0, sdk_1.convertToNumber)(oracleData.confidence, sdk_1.PRICE_PRECISION)
+                : undefined;
+            prices.push({
+                marketIndex: market.marketIndex,
+                marketName: marketNames[market.marketIndex] || `MARKET-${market.marketIndex}`,
+                price,
+                confidence,
+                slot: oracleData.slot.toNumber(),
+            });
+        }
+        catch (err) {
+            // Skip markets with no oracle data
+            continue;
+        }
+    }
+    return prices;
 }
 /**
  * Shutdown the drift client gracefully
